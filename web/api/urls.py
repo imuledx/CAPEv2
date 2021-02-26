@@ -3,16 +3,20 @@
 # See the file "docs/LICENSE" for copying permission.
 
 from __future__ import absolute_import
-from django.conf.urls import url
+from django.conf.urls import url, include
+from django.urls import path, re_path
+
+
 from api import views
 
 urlpatterns = [
-    url(r"^$", views.index, name='api'),
+    url(r"^$", views.index, name="api"),
     url(r"^tasks/create/file/$", views.tasks_create_file),
     url(r"^tasks/stats/$", views.task_x_hours),
     url(r"^tasks/create/url/$", views.tasks_create_url),
     url(r"^tasks/create/dlnexec/$", views.tasks_create_dlnexec),
     url(r"^tasks/create/vtdl/$", views.tasks_vtdl),
+    url(r"^tasks/create/static/$", views.tasks_create_static),
     url(r"^tasks/search/md5/(?P<md5>([a-fA-F\d]{32}))/$", views.tasks_search),
     url(r"^tasks/search/sha1/(?P<sha1>([a-fA-F\d]{40}))/$", views.tasks_search),
     url(r"^tasks/search/sha256/(?P<sha256>([a-fA-F\d]{64}))/$", views.tasks_search),
@@ -30,6 +34,7 @@ urlpatterns = [
     url(r"^tasks/get/iocs/(?P<task_id>\d+)/$", views.tasks_iocs),
     url(r"^tasks/get/iocs/(?P<task_id>\d+)/(?P<detail>detailed)/$", views.tasks_iocs),
     url(r"^tasks/get/config/(?P<task_id>\d+)/$", views.tasks_config),
+    url(r"^tasks/get/config/(?P<task_id>\d+)/(?P<cape_name>\w+)/$", views.tasks_config),
     url(r"^tasks/get/screenshot/(?P<task_id>\d+)/$", views.tasks_screenshot),
     url(r"^tasks/get/screenshot/(?P<task_id>\d+)/(?P<screenshot>\d{1,4})/$", views.tasks_screenshot),
     url(r"^tasks/get/procmemory/(?P<task_id>\d+)/$", views.tasks_procmemory),
@@ -44,10 +49,10 @@ urlpatterns = [
     url(r"^files/view/sha1/(?P<sha1>([a-fA-F\d]{40}))/$", views.files_view),
     url(r"^files/view/sha256/(?P<sha256>([a-fA-F\d]{64}))/$", views.files_view),
     url(r"^files/view/id/(?P<sample_id>\d+)/$", views.files_view),
-    url(r"^files/get/(?P<stype>md5)/(?P<value>([a-fA-F\d]{32}))/$", views.get_files),
-    url(r"^files/get/(?P<stype>sha1)/(?P<value>([a-fA-F\d]{40}))/$", views.get_files),
-    url(r"^files/get/(?P<stype>sha256)/(?P<value>([a-fA-F\d]{64}))/$", views.get_files),
-    url(r"^files/get/(?P<stype>task)/(?P<value>\d+)/$", views.get_files),
+    url(r"^files/get/(?P<stype>md5)/(?P<value>([a-fA-F\d]{32}))/$", views.file),
+    url(r"^files/get/(?P<stype>sha1)/(?P<value>([a-fA-F\d]{40}))/$", views.file),
+    url(r"^files/get/(?P<stype>sha256)/(?P<value>([a-fA-F\d]{64}))/$", views.file),
+    url(r"^files/get/(?P<stype>task)/(?P<value>\d+)/$", views.file),
     url(r"^machines/list/$", views.machines_list),
     url(r"^machines/view/(?P<name>[\w$-/:-?{-~!^_`\[\]]+)/$", views.machines_view),
     url(r"^cuckoo/status/$", views.cuckoo_status),
@@ -55,5 +60,6 @@ urlpatterns = [
     url(r"^tasks/get/rollingshrike/(?P<window>\d+)/$", views.tasks_rollingshrike),
     url(r"^tasks/get/rollingshrike/(?P<window>\d+)/(?P<msgfilter>[\w$-/:-?{-~!^_`\[\]\s\x5c]+)/$", views.tasks_rollingshrike),
     url(r"^tasks/get/latests/(?P<hours>\d+)/$", views.tasks_latest),
-    url(r"^tasks/add/(?P<category>[A-Za-z0-9]+)/(?P<task_id>\d+)/$", views.post_processing)
+    # url(r"^tasks/add/(?P<category>[A-Za-z0-9]+)/(?P<task_id>\d+)/$", views.post_processing),
+    url(r"^tasks/statistics/(?P<days>\d+)/$", views.statistics_data),
 ]

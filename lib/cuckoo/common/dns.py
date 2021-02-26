@@ -9,14 +9,15 @@ import threading
 
 try:
     import pycares
+
     HAVE_CARES = True
 except:
     HAVE_CARES = False
 
-#try:
+# try:
 #    import gevent, gevent.socket
 #    HAVE_GEVENT = True
-#except:
+# except:
 HAVE_GEVENT = False
 
 
@@ -24,9 +25,11 @@ HAVE_GEVENT = False
 DNS_TIMEOUT = 5
 DNS_TIMEOUT_VALUE = ""
 
+
 def set_timeout(value):
     global DNS_TIMEOUT
     DNS_TIMEOUT = value
+
 
 def set_timeout_value(value):
     global DNS_TIMEOUT_VALUE
@@ -40,11 +43,14 @@ def with_timeout(func, args=(), kwargs={}):
     using the args, kwargs and return the given default value if the
     timeout_duration is exceeded.
     """
+
     class ResultThread(threading.Thread):
         daemon = True
+
         def __init__(self):
             threading.Thread.__init__(self)
             self.result, self.error = None, None
+
         def run(self):
             try:
                 self.result = func(*args, **kwargs)
@@ -61,8 +67,10 @@ def with_timeout(func, args=(), kwargs={}):
             raise it.error
         return it.result
 
+
 def resolve_thread(name):
     return with_timeout(gethostbyname, (name,))
+
 
 def gethostbyname(name):
     try:
@@ -91,8 +99,7 @@ def resolve_cares(name):
 
     # now do the actual work
     readfds, writefds = careschan.getsock()
-    canreadfds, canwritefds, _ = select.select(readfds, writefds, [],
-                                               DNS_TIMEOUT)
+    canreadfds, canwritefds, _ = select.select(readfds, writefds, [], DNS_TIMEOUT)
     for rfd in canreadfds:
         careschan.process_fd(rfd, -1)
 
@@ -101,11 +108,12 @@ def resolve_cares(name):
     careschan.destroy()
     return result.value
 
+
 # workaround until py3 nonlocal (for c-ares and gevent)
 class Resultholder:
     pass
 
-
+"""
 # gevent based resolver with timeout
 def resolve_gevent(name):
     result = resolve_gevent_real(name)
@@ -116,6 +124,7 @@ def resolve_gevent(name):
         result = resolve_gevent_real(name)
     return result
 
+
 def resolve_gevent_real(name):
     result = DNS_TIMEOUT_VALUE
     with gevent.Timeout(DNS_TIMEOUT, False):
@@ -125,16 +134,17 @@ def resolve_gevent_real(name):
             pass
 
     return result
-
+"""
 
 # choose resolver automatically
 def resolve(name):
     if HAVE_CARES:
         return resolve_cares(name)
-    elif HAVE_GEVENT:
-        return resolve_gevent(name)
+    #elif HAVE_GEVENT:
+    #    return resolve_gevent(name)
     else:
         return resolve_thread(name)
+
 
 # another alias
 resolve_best = resolve

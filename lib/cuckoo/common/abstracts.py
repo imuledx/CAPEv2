@@ -1,4 +1,4 @@
-#encoding: utf-8
+# encoding: utf-8
 # Copyright (C) 2010-2015 Cuckoo Foundation, Optiv, Inc. (brad.spengler@optiv.com).
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
@@ -15,6 +15,7 @@ import logging
 import time
 
 from urllib.parse import urlparse
+
 try:
     import re2 as re
 except ImportError:
@@ -41,12 +42,14 @@ machinery_conf = Config(cfg.cuckoo.machinery)
 
 try:
     import libvirt
+
     HAVE_LIBVIRT = True
 except ImportError:
     HAVE_LIBVIRT = False
 
 try:
     import tldextract
+
     HAVE_TLDEXTRACT = True
 except ImportError:
     HAVE_TLDEXTRACT = False
@@ -54,15 +57,22 @@ except ImportError:
 if repconf.mitre.enabled:
     try:
         from pyattck import Attck
-        attack_file = repconf.mitre.get("local_file", False)
-        if attack_file:
-           attack_file = os.path.join(CUCKOO_ROOT, attack_file)
+        from pyattck.version import __version_info__ as pyattck_version
+
+        if pyattck_version[0] == 2:
+
+            attack_file = repconf.mitre.get("local_file", False)
+            if attack_file:
+                attack_file = os.path.join(CUCKOO_ROOT, attack_file)
+            else:
+                attack_file = False
+            mitre = Attck(dataset_json=attack_file)
+            HAVE_MITRE = True
         else:
-           attack_file = False
-        mitre = Attck() #local_file_path=attack_file
-        HAVE_MITRE = True
-    except ImportError:
-        log.error("Missed pyattck dependency")
+            HAVE_MITRE = False
+            log.error("Missed pyattck dependency: pip3 install pyattck>=2.0.2")
+    except (ImportError, ModuleNotFoundError):
+        log.error("Missed pyattck dependency: pip3 install pyattck>=2.0.2")
         HAVE_MITRE = False
 else:
     HAVE_MITRE = False
@@ -72,7 +82,8 @@ myresolver = dns.resolver.Resolver()
 myresolver.timeout = 5.0
 myresolver.lifetime = 5.0
 myresolver.domain = dns.name.Name("google-public-dns-a.google.com")
-myresolver.nameserver = ['8.8.8.8']
+myresolver.nameserver = ["8.8.8.8"]
+
 
 class Auxiliary(object):
     """Base abstract class for auxiliary modules."""
@@ -174,6 +185,7 @@ class Machinery(object):
                     # get it from the ResultServer singleton. Also avoid import
                     # recursion issues by importing ResultServer here.
                     from lib.cuckoo.core.resultserver import ResultServer
+
                     port = ResultServer().port
 
                 ip = machine_opts.get("resultserver_ip", ip)
@@ -187,18 +199,19 @@ class Machinery(object):
                     if value and isinstance(value, str):
                         machine[key] = value.strip()
 
-                self.db.add_machine(name=machine.id,
-                                    label=machine.label,
-                                    ip=machine.ip,
-                                    platform=machine.platform,
-                                    tags=machine.tags,
-                                    interface=machine.interface,
-                                    snapshot=machine.snapshot,
-                                    resultserver_ip=ip,
-                                    resultserver_port=port)
+                self.db.add_machine(
+                    name=machine.id,
+                    label=machine.label,
+                    ip=machine.ip,
+                    platform=machine.platform,
+                    tags=machine.tags,
+                    interface=machine.interface,
+                    snapshot=machine.snapshot,
+                    resultserver_ip=ip,
+                    resultserver_port=port,
+                )
             except (AttributeError, CuckooOperationalError) as e:
-                log.warning("Configuration details about machine %s "
-                            "are missing: %s", machine_id.strip(), e)
+                log.warning("Configuration details about machine %s " "are missing: %s", machine_id.strip(), e)
                 continue
 
     def _initialize_check(self):
@@ -217,8 +230,7 @@ class Machinery(object):
         for machine in self.machines():
             # If this machine is already in the "correct" state, then we
             # go on to the next machine.
-            if machine.label in configured_vms and \
-                    self._status(machine.label) in [self.POWEROFF, self.ABORTED]:
+            if machine.label in configured_vms and self._status(machine.label) in [self.POWEROFF, self.ABORTED]:
                 continue
 
             # This machine is currently not in its correct state, we're going
@@ -226,15 +238,15 @@ class Machinery(object):
             try:
                 self.stop(machine.label)
             except CuckooMachineError as e:
-                msg = "Please update your configuration. Unable to shut " \
-                      "'{0}' down or find the machine in its proper state:" \
-                      " {1}".format(machine.label, e)
+                msg = (
+                    "Please update your configuration. Unable to shut "
+                    "'{0}' down or find the machine in its proper state:"
+                    " {1}".format(machine.label, e)
+                )
                 raise CuckooCriticalError(msg)
 
         if not cfg.timeouts.vm_state:
-            raise CuckooCriticalError("Virtual machine state change timeout "
-                                      "setting not found, please add it to "
-                                      "the config file.")
+            raise CuckooCriticalError("Virtual machine state change timeout " "setting not found, please add it to " "the config file.")
 
     def machines(self):
         """List virtual machines.
@@ -279,14 +291,12 @@ class Machinery(object):
         @raise CuckooMachineError: if unable to stop machine.
         """
         if len(self.running()) > 0:
-            log.info("Still %s guests alive. Shutting down...",
-                     len(self.running()))
+            log.info("Still %s guests alive. Shutting down...", len(self.running()))
             for machine in self.running():
                 try:
                     self.stop(machine.label)
                 except CuckooMachineError as e:
-                    log.warning("Unable to shutdown machine %s, please check "
-                                "manually. Error: %s", machine.label, e)
+                    log.warning("Unable to shutdown machine %s, please check " "manually. Error: %s", machine.label, e)
 
     def set_status(self, label, status):
         """Set status for a virtual machine.
@@ -337,11 +347,9 @@ class Machinery(object):
         if isinstance(state, str):
             state = [state]
         while current not in state:
-            log.debug("Waiting %i cuckooseconds for machine %s to switch "
-                      "to status %s", waitme, label, state)
+            log.debug("Waiting %i cuckooseconds for machine %s to switch " "to status %s", waitme, label, state)
             if waitme > int(cfg.timeouts.vm_state):
-                raise CuckooMachineError("Timeout hit while for machine {0} "
-                                         "to change status".format(label))
+                raise CuckooMachineError("Timeout hit while for machine {0} " "to change status".format(label))
             time.sleep(1)
             waitme += 1
             current = self._status(label)
@@ -381,8 +389,7 @@ class LibVirtMachinery(Machinery):
         """
         # Version checks.
         if not self._version_check():
-            raise CuckooMachineError("Libvirt version is not supported, "
-                                     "please get an updated version")
+            raise CuckooMachineError("Libvirt version is not supported, " "please get an updated version")
 
         # Preload VMs
         self.vms = self._fetch_machines()
@@ -399,8 +406,7 @@ class LibVirtMachinery(Machinery):
         log.debug("Starting machine %s", label)
 
         if self._status(label) != self.POWEROFF:
-            msg = "Trying to start a virtual machine that has not " \
-                  "been turned off {0}".format(label)
+            msg = "Trying to start a virtual machine that has not " "been turned off {0}".format(label)
             raise CuckooMachineError(msg)
 
         conn = self._connect(label)
@@ -412,33 +418,28 @@ class LibVirtMachinery(Machinery):
         # If a snapshot is configured try to use it.
         if vm_info.snapshot and vm_info.snapshot in snapshot_list:
             # Revert to desired snapshot, if it exists.
-            log.debug("Using snapshot {0} for virtual machine "
-                      "{1}".format(vm_info.snapshot, label))
+            log.debug("Using snapshot {0} for virtual machine " "{1}".format(vm_info.snapshot, label))
             try:
                 vm = self.vms[label]
                 snapshot = vm.snapshotLookupByName(vm_info.snapshot, flags=0)
                 self.vms[label].revertToSnapshot(snapshot, flags=0)
             except libvirt.libvirtError:
-                msg = "Unable to restore snapshot {0} on " \
-                      "virtual machine {1}".format(vm_info.snapshot, label)
+                msg = "Unable to restore snapshot {0} on " "virtual machine {1}".format(vm_info.snapshot, label)
                 raise CuckooMachineError(msg)
             finally:
                 self._disconnect(conn)
         elif self._get_snapshot(label):
             snapshot = self._get_snapshot(label)
-            log.debug("Using snapshot {0} for virtual machine "
-                      "{1}".format(snapshot.getName(), label))
+            log.debug("Using snapshot {0} for virtual machine " "{1}".format(snapshot.getName(), label))
             try:
                 self.vms[label].revertToSnapshot(snapshot, flags=0)
             except libvirt.libvirtError:
-                raise CuckooMachineError("Unable to restore snapshot on "
-                                         "virtual machine {0}".format(label))
+                raise CuckooMachineError("Unable to restore snapshot on " "virtual machine {0}".format(label))
             finally:
                 self._disconnect(conn)
         else:
             self._disconnect(conn)
-            raise CuckooMachineError("No snapshot found for virtual machine "
-                                     "{0}".format(label))
+            raise CuckooMachineError("No snapshot found for virtual machine " "{0}".format(label))
 
         # Check state.
         self._wait_status(label, self.RUNNING)
@@ -451,20 +452,17 @@ class LibVirtMachinery(Machinery):
         log.debug("Stopping machine %s", label)
 
         if self._status(label) == self.POWEROFF:
-            raise CuckooMachineError("Trying to stop an already stopped "
-                                     "machine {0}".format(label))
+            raise CuckooMachineError("Trying to stop an already stopped " "machine {0}".format(label))
 
         # Force virtual machine shutdown.
         conn = self._connect(label)
         try:
             if not self.vms[label].isActive():
-                log.debug("Trying to stop an already stopped machine %s. "
-                          "Skip", label)
+                log.debug("Trying to stop an already stopped machine %s. " "Skip", label)
             else:
                 self.vms[label].destroy()  # Machete's way!
         except libvirt.libvirtError as e:
-            raise CuckooMachineError("Error stopping virtual machine "
-                                     "{0}: {1}".format(label, e))
+            raise CuckooMachineError("Error stopping virtual machine " "{0}: {1}".format(label, e))
         finally:
             self._disconnect(conn)
         # Check state.
@@ -491,8 +489,7 @@ class LibVirtMachinery(Machinery):
             fd.close()
             self.vms[label].coreDump(path, flags=libvirt.VIR_DUMP_MEMORY_ONLY)
         except libvirt.libvirtError as e:
-            raise CuckooMachineError("Error dumping memory virtual machine "
-                                     "{0}: {1}".format(label, e))
+            raise CuckooMachineError("Error dumping memory virtual machine " "{0}: {1}".format(label, e))
         finally:
             self._disconnect(conn)
 
@@ -518,8 +515,7 @@ class LibVirtMachinery(Machinery):
         try:
             state = self.vms[label].state(flags=0)
         except libvirt.libvirtError as e:
-            raise CuckooMachineError("Error getting status for virtual "
-                                     "machine {0}: {1}".format(label, e))
+            raise CuckooMachineError("Error getting status for virtual " "machine {0}: {1}".format(label, e))
         finally:
             self._disconnect(conn)
 
@@ -538,8 +534,7 @@ class LibVirtMachinery(Machinery):
             self.set_status(label, status)
             return status
         else:
-            raise CuckooMachineError("Unable to get status for "
-                                     "{0}".format(label))
+            raise CuckooMachineError("Unable to get status for " "{0}".format(label))
 
     def _connect(self, label=None):
         """Connects to libvirt subsystem.
@@ -547,8 +542,7 @@ class LibVirtMachinery(Machinery):
         """
         # Check if a connection string is available.
         if not self.dsn:
-            raise CuckooMachineError("You must provide a proper "
-                                     "connection string")
+            raise CuckooMachineError("You must provide a proper " "connection string")
 
         try:
             return libvirt.open(self.dsn)
@@ -583,8 +577,7 @@ class LibVirtMachinery(Machinery):
         try:
             vm = conn.lookupByName(label)
         except libvirt.libvirtError:
-                raise CuckooMachineError("Cannot find machine "
-                                         "{0}".format(label))
+            raise CuckooMachineError("Cannot find machine " "{0}".format(label))
         finally:
             self._disconnect(conn)
         return vm
@@ -618,6 +611,7 @@ class LibVirtMachinery(Machinery):
         @raise CuckooMachineError: if cannot find current snapshot or
                                    when there are too many snapshots available
         """
+
         def _extract_creation_time(node):
             """Extracts creation time from a KVM vm config file.
             @param node: config file node
@@ -639,19 +633,18 @@ class LibVirtMachinery(Machinery):
                 log.debug("No current snapshot, using latest snapshot")
 
                 # No current snapshot, try to get the last one from config file.
-                snapshot = sorted(vm.listAllSnapshots(flags=0),
-                                  key=_extract_creation_time,
-                                  reverse=True)[0]
+                snapshot = sorted(vm.listAllSnapshots(flags=0), key=_extract_creation_time, reverse=True)[0]
         except libvirt.libvirtError:
-            raise CuckooMachineError("Unable to get snapshot for "
-                                     "virtual machine {0}".format(label))
+            raise CuckooMachineError("Unable to get snapshot for " "virtual machine {0}".format(label))
         finally:
             self._disconnect(conn)
 
         return snapshot
 
+
 class Processing(object):
     """Base abstract class for processing module."""
+
     order = 1
     enabled = True
 
@@ -691,12 +684,22 @@ class Processing(object):
         self.pcap_path = os.path.join(self.analysis_path, "dump.pcap")
         self.pmemory_path = os.path.join(self.analysis_path, "memory")
         self.memory_path = os.path.join(self.analysis_path, "memory.dmp")
+        self.network_path = os.path.join(self.analysis_path, "network")
+        self.tlsmaster_path = os.path.join(self.analysis_path, "tlsmaster.txt")
 
-    def add_statistic(self, name, field, value):
-        if name not in self.results["statistics"]["processing"]:
-            self.results["statistics"]["processing"][name] = { }
+    def add_statistic_tmp(self, name, field, pretime):
+        posttime = datetime.datetime.now()
+        timediff = posttime - pretime
+        value = float("%d.%03d" % (timediff.seconds, timediff.microseconds / 1000))
 
-        self.results["statistics"]["processing"][name][field] = value
+        if name not in self.results["temp_processing_stats"]:
+            self.results["temp_processing_stats"][name] = {}
+
+        # To be able to add yara/capa and others time summary over all processing modules
+        if field in self.results["temp_processing_stats"][name]:
+            self.results["temp_processing_stats"][name][field] += value
+        else:
+            self.results["temp_processing_stats"][name][field] = value
 
     def run(self):
         """Start processing.
@@ -770,13 +773,22 @@ class Signature(object):
 
         target = self.results.get("target", {})
         if target.get("category") in ("file", "static") and target.get("file"):
-            for block in self.results["target"]["file"].get("yara", list()):
-                if re.findall(name, block["name"], re.I):
-                    yield "sample", self.results["target"]["file"]["path"], block
+            for keyword in ("yara", "cape_yara"):
+                for block in self.results["target"]["file"].get(keyword, list()):
+                    if re.findall(name, block["name"], re.I):
+                        yield "sample", self.results["target"]["file"]["path"], block
 
-        for keyword in ("procdump", "procmemory", "extracted", "dropped", "CAPE"):
+        for block in self.results.get("CAPE", {}).get("payloads", []) or []:
+            for sub_keyword in ("yara", "cape_yara"):
+                for sub_block in block.get(sub_keyword, []):
+                    if re.findall(name, sub_block["name"], re.I):
+                        yield sub_keyword, block["path"], sub_block
+
+        for keyword in ("procdump", "procmemory", "extracted", "dropped"):
             if keyword in self.results and self.results[keyword] is not None:
                 for block in self.results.get(keyword, []):
+                    if not isinstance(block, dict):
+                        continue
                     for sub_keyword in ("yara", "cape_yara"):
                         for sub_block in block.get(sub_keyword, []):
                             if re.findall(name, sub_block["name"], re.I):
@@ -800,7 +812,17 @@ class Signature(object):
                                     if re.findall(name, sub_block["name"], re.I):
                                         yield "extracted_pe", pe["path"], sub_block
 
-        yield False, False, False
+        macro_path = os.path.join(CUCKOO_ROOT, "storage", "analyses", str(self.results["info"]["id"]), "macros")
+        for macroname in self.results.get("static", {}).get("office", {}).get("Macro", {}).get("info", []) or []:
+            for yara_block in self.results["static"]["office"]["Macro"]["info"].get("macroname", []) or []:
+                for sub_block in self.results["static"]["office"]["Macro"]["info"]["macroname"].get(yara_block, []) or []:
+                    if re.findall(name, sub_block["name"], re.I):
+                        yield "macro", os.path.join(macro_path, macroname), sub_block
+
+        if self.results.get("static", {}).get("office", {}).get("XLMMacroDeobfuscator", False):
+            for sub_block in self.results["static"]["office"]["XLMMacroDeobfuscator"].get("info", []).get("yara_macro", []) or []:
+                if re.findall(name, sub_block["name"], re.I):
+                    yield "macro", os.path.join(macro_path, "xlm_macro"), sub_block
 
     def add_statistic(self, name, field, value):
         if name not in self.results["statistics"]["signatures"]:
@@ -820,7 +842,7 @@ class Signature(object):
         if os.path.exists(logs):
             pids += [pidb.replace(".bson", "") for pidb in os.listdir(logs) if ".bson" in pidb]
 
-        # in case if injection not follows
+        #  in case if injection not follows
         if "procmemory" in self.results and self.results["procmemory"] is not None:
             pids += [str(block["pid"]) for block in self.results["procmemory"]]
         if "procdump" in self.results and self.results["procdump"] is not None:
@@ -831,7 +853,7 @@ class Signature(object):
 
     def advanced_url_parse(self, url):
         if HAVE_TLDEXTRACT:
-            EXTRA_SUFFIXES = ('bit',)
+            EXTRA_SUFFIXES = ("bit",)
             parsed = False
             try:
                 parsed = tldextract.TLDExtract(extra_suffixes=EXTRA_SUFFIXES, suffix_list_urls=None)(url)
@@ -842,7 +864,7 @@ class Signature(object):
             log.info("missed tldextract dependency")
 
     def _get_ip_by_host(self, hostname):
-        for data in self.results.get('network', {}).get("hosts", []):
+        for data in self.results.get("network", {}).get("hosts", []):
             if data.get("hostname", "") == hostname:
                 return [data.get("ip", "")]
         return []
@@ -852,11 +874,11 @@ class Signature(object):
         ips = list()
 
         try:
-            answers = myresolver.query(hostname, 'A')
+            answers = myresolver.query(hostname, "A")
             for rdata in answers:
                 n = dns.reversename.from_address(rdata.address)
                 try:
-                    answers_inv = myresolver.query(n, 'PTR')
+                    answers_inv = myresolver.query(n, "PTR")
                     for rdata_inv in answers_inv:
                         ips.append(rdata.address)
                 except dns.resolver.NoAnswer:
@@ -895,7 +917,7 @@ class Signature(object):
         if all_checks:
             last = url.rfind("://")
             if url[:last] in ("http", "https"):
-                url = url[last+3:]
+                url = url[last + 3 :]
 
         try:
             val("http://%s" % url)
@@ -965,7 +987,6 @@ class Signature(object):
                         return True
         return False
 
-
     def check_file(self, pattern, regex=False, all=False):
         """Checks for a file being opened.
         @param pattern: string or expression to check for.
@@ -977,10 +998,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["files"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_read_file(self, pattern, regex=False, all=False):
         """Checks for a file being read from.
@@ -993,10 +1011,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["read_files"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_write_file(self, pattern, regex=False, all=False):
         """Checks for a file being written to.
@@ -1009,10 +1024,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["write_files"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_delete_file(self, pattern, regex=False, all=False):
         """Checks for a file being deleted.
@@ -1025,10 +1037,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["delete_files"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_key(self, pattern, regex=False, all=False):
         """Checks for a registry key being opened.
@@ -1041,10 +1050,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["keys"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_read_key(self, pattern, regex=False, all=False):
         """Checks for a registry key/value being read
@@ -1057,10 +1063,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["read_keys"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_write_key(self, pattern, regex=False, all=False):
         """Checks for a registry key/value being modified
@@ -1073,10 +1076,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["write_keys"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_delete_key(self, pattern, regex=False, all=False):
         """Checks for a registry key/value being modified or deleted
@@ -1089,10 +1089,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["delete_keys"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all)
 
     def check_mutex(self, pattern, regex=False, all=False):
         """Checks for a mutex being opened.
@@ -1105,11 +1102,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["mutexes"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all,
-                                 ignorecase=False)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all, ignorecase=False)
 
     def check_started_service(self, pattern, regex=False, all=False):
         """Checks for a service being started.
@@ -1122,11 +1115,20 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["started_services"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all,
-                                 ignorecase=True)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all, ignorecase=True)
+
+    def check_created_service(self, pattern, regex=False, all=False):
+        """Checks for a service being created.
+        @param pattern: string or expression to check for.
+        @param regex: boolean representing if the pattern is a regular
+                      expression or not and therefore should be compiled.
+        @param all: boolean representing if all results should be returned
+                      in a set or not
+        @return: depending on the value of param 'all', either a set of
+                      matched items or the first matched item
+        """
+        subject = self.results["behavior"]["summary"]["created_services"]
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all, ignorecase=True)
 
     def check_executed_command(self, pattern, regex=False, all=False, ignorecase=True):
         """Checks for a command being executed.
@@ -1141,11 +1143,7 @@ class Signature(object):
                       matched items or the first matched item
         """
         subject = self.results["behavior"]["summary"]["executed_commands"]
-        return self._check_value(pattern=pattern,
-                                 subject=subject,
-                                 regex=regex,
-                                 all=all,
-                                 ignorecase=ignorecase)
+        return self._check_value(pattern=pattern, subject=subject, regex=regex, all=all, ignorecase=ignorecase)
 
     def check_api(self, pattern, process=None, regex=False, all=False):
         """Checks for an API being called.
@@ -1170,11 +1168,7 @@ class Signature(object):
             # Loop through API calls.
             for call in item["calls"]:
                 # Check if the name matches.
-                ret = self._check_value(pattern=pattern,
-                                     subject=call["api"],
-                                     regex=regex,
-                                     all=all,
-                                     ignorecase=False)
+                ret = self._check_value(pattern=pattern, subject=call["api"], regex=regex, all=all, ignorecase=False)
                 if ret:
                     if all:
                         retset.update(ret)
@@ -1186,15 +1180,7 @@ class Signature(object):
 
         return None
 
-    def check_argument_call(self,
-                            call,
-                            pattern,
-                            name=None,
-                            api=None,
-                            category=None,
-                            regex=False,
-                            all=False,
-                            ignorecase=False):
+    def check_argument_call(self, call, pattern, name=None, api=None, category=None, regex=False, all=False, ignorecase=False):
         """Checks for a specific argument of an invoked API.
         @param call: API call information.
         @param pattern: string or expression to check for.
@@ -1231,11 +1217,7 @@ class Signature(object):
                     continue
 
             # Check if the argument value matches.
-            ret = self._check_value(pattern=pattern,
-                                 subject=argument["value"],
-                                 regex=regex,
-                                 all=all,
-                                 ignorecase=ignorecase)
+            ret = self._check_value(pattern=pattern, subject=argument["value"], regex=regex, all=all, ignorecase=ignorecase)
             if ret:
                 if all:
                     retset.update(ret)
@@ -1247,15 +1229,7 @@ class Signature(object):
 
         return False
 
-    def check_argument(self,
-                       pattern,
-                       name=None,
-                       api=None,
-                       category=None,
-                       process=None,
-                       regex=False,
-                       all=False,
-                       ignorecase=False):
+    def check_argument(self, pattern, name=None, api=None, category=None, process=None, regex=False, all=False, ignorecase=False):
         """Checks for a specific argument of an invoked API.
         @param pattern: string or expression to check for.
         @param name: optional filter for the argument name.
@@ -1283,8 +1257,7 @@ class Signature(object):
 
             # Loop through API calls.
             for call in item["calls"]:
-                r = self.check_argument_call(call, pattern, name,
-                                             api, category, regex, all, ignorecase)
+                r = self.check_argument_call(call, pattern, name, api, category, regex, all, ignorecase)
                 if r:
                     if all:
                         retset.update(r)
@@ -1318,11 +1291,7 @@ class Signature(object):
             return None
 
         for item in hosts:
-            ret = self._check_value(pattern=pattern,
-                                 subject=item["ip"],
-                                 regex=regex,
-                                 all=all,
-                                 ignorecase=False)
+            ret = self._check_value(pattern=pattern, subject=item["ip"], regex=regex, all=all, ignorecase=False)
             if ret:
                 if all:
                     retset.update(ret)
@@ -1356,10 +1325,7 @@ class Signature(object):
             return None
 
         for item in domains:
-            ret = self._check_value(pattern=pattern,
-                                 subject=item["domain"],
-                                 regex=regex,
-                                 all=all)
+            ret = self._check_value(pattern=pattern, subject=item["domain"], regex=regex, all=all)
             if ret:
                 if all:
                     retset.update(ret)
@@ -1392,11 +1358,7 @@ class Signature(object):
         if not httpitems:
             return None
         for item in httpitems:
-            ret = self._check_value(pattern=pattern,
-                                 subject=item["uri"],
-                                 regex=regex,
-                                 all=all,
-                                 ignorecase=False)
+            ret = self._check_value(pattern=pattern, subject=item["uri"], regex=regex, all=all, ignorecase=False)
             if ret:
                 if all:
                     retset.update(ret)
@@ -1495,13 +1457,10 @@ class Signature(object):
         if isinstance(self.results.get("suricata", {}), dict):
             for alert in self.results.get("suricata", {}).get("alerts", []):
                 sid = alert.get("sid", 0)
-                if (sid not in self.banned_suricata_sids or \
-                   sid not in blacklist) and \
-                   re.findall(pattern, alert.get("signature", ""), re.I):
+                if (sid not in self.banned_suricata_sids and sid not in blacklist) and re.findall(pattern, alert.get("signature", ""), re.I):
                     res = True
                     break
         return res
-
 
     def add_match(self, process, type, match):
         """Adds a match to the signature data.
@@ -1512,17 +1471,17 @@ class Signature(object):
         signs = []
         if isinstance(match, list):
             for item in match:
-                signs.append({ 'type': type, 'value': item })
+                signs.append({"type": type, "value": item})
         else:
-            signs.append({ 'type': type, 'value': match })
+            signs.append({"type": type, "value": match})
 
         process_summary = None
         if process:
             process_summary = {}
-            process_summary['process_name'] = process['process_name']
-            process_summary['process_id'] = process['process_id']
+            process_summary["process_name"] = process["process_name"]
+            process_summary["process_id"] = process["process_id"]
 
-        self.new_data.append({ 'process': process_summary, 'signs': signs })
+        self.new_data.append({"process": process_summary, "signs": signs})
 
     def has_matches(self):
         """Returns true if there is matches (data is not empty)
@@ -1567,12 +1526,13 @@ class Signature(object):
             data=self.data,
             new_data=self.new_data,
             alert=self.alert,
-            families=self.families
+            families=self.families,
         )
 
 
 class Report(object):
     """Base abstract class for reporting module."""
+
     order = 1
 
     def __init__(self):
@@ -1600,6 +1560,7 @@ class Report(object):
         self.pcap_path = os.path.join(self.analysis_path, "dump.pcap")
         self.pmemory_path = os.path.join(self.analysis_path, "memory")
         self.memory_path = os.path.join(self.analysis_path, "memory.dmp")
+        self.files_metadata = os.path.join(self.analysis_path, "files.json")
 
         try:
             create_folder(folder=self.reports_path)
@@ -1627,6 +1588,7 @@ class Report(object):
 
 class Feed(object):
     """Base abstract class for feeds."""
+
     name = ""
 
     def __init__(self):
@@ -1697,6 +1659,7 @@ class Feed(object):
 
 class ProtocolHandler(object):
     """Abstract class for protocol handlers coming out of the analysis."""
+
     def __init__(self, task_id, ctx, version=None):
         self.task_id = task_id
         self.handler = ctx
@@ -1716,4 +1679,3 @@ class ProtocolHandler(object):
 
     def handle(self):
         raise NotImplementedError
-

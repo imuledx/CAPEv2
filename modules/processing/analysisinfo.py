@@ -9,12 +9,25 @@ import logging
 import os
 from datetime import datetime
 
+from lib.cuckoo.common.config import Config
 from lib.cuckoo.core.database import Database
+from lib.cuckoo.common.utils import get_options
 from lib.cuckoo.common.abstracts import Processing
 from lib.cuckoo.common.constants import CUCKOO_VERSION
 from lib.cuckoo.common.exceptions import CuckooProcessingError
 
+try:
+    import requests
+
+    HAVE_REQUEST = True
+except ImportError:
+    HAVE_REQUEST = False
+
+
 log = logging.getLogger(__name__)
+report_cfg = Config("reporting")
+
+db = Database()
 
 
 class AnalysisInfo(Processing):
@@ -27,11 +40,9 @@ class AnalysisInfo(Processing):
             try:
                 analysis_log = codecs.open(self.log_path, "rb", "utf-8").read()
             except ValueError as e:
-                raise CuckooProcessingError("Error decoding %s: %s" %
-                                            (self.log_path, e))
+                raise CuckooProcessingError("Error decoding %s: %s" % (self.log_path, e))
             except (IOError, OSError) as e:
-                raise CuckooProcessingError("Error opening %s: %s" %
-                                            (self.log_path, e))
+                raise CuckooProcessingError("Error opening %s: %s" % (self.log_path, e))
             else:
                 if "INFO: Analysis timeout hit, terminating analysis" in analysis_log:
                     return True
@@ -45,49 +56,16 @@ class AnalysisInfo(Processing):
             try:
                 analysis_log = codecs.open(self.log_path, "rb", "utf-8").read()
             except ValueError as e:
-                raise CuckooProcessingError("Error decoding %s: %s" %
-                                            (self.log_path, e))
+                raise CuckooProcessingError("Error decoding %s: %s" % (self.log_path, e))
             except (IOError, OSError) as e:
-                raise CuckooProcessingError("Error opening %s: %s" %
-                                            (self.log_path, e))
+                raise CuckooProcessingError("Error opening %s: %s" % (self.log_path, e))
             else:
                 try:
-                    idx = analysis_log.index("INFO: Automatically selected analysis package \"")
-                    package = analysis_log[idx+47:].split("\"", 1)[0]
+                    idx = analysis_log.index('INFO: Automatically selected analysis package "')
+                    package = analysis_log[idx + 47 :].split('"', 1)[0]
                 except:
                     pass
         return package
-
-    def get_options(self,optstring):
-        """Get analysis options.
-        @return: options dict.
-        """
-        # The analysis package can be provided with some options in the
-        # following format:
-        #   option1=value1,option2=value2,option3=value3
-        #
-        # Here we parse such options and provide a dictionary that will be made
-        # accessible to the analysis package.
-        options = {}
-        if optstring:
-            try:
-                # Split the options by comma.
-                fields = optstring.split(",")
-            except ValueError as e:
-                pass
-            else:
-                for field in fields:
-                    # Split the name and the value of the option.
-                    try:
-                        key, value = field.split("=", 1)
-                    except ValueError as e:
-                        pass
-                    else:
-                        # If the parsing went good, we add the option to the
-                        # dictionary.
-                        options[key.strip()] = value.strip()
-
-        return options
 
     def run(self):
         """Run information gathering.
@@ -106,8 +84,6 @@ class AnalysisInfo(Processing):
         else:
             duration = (ended - started).seconds
 
-        db = Database()
-
         # Fetch sqlalchemy object.
         task = db.view_task(self.task["id"], details=True)
 
@@ -115,9 +91,15 @@ class AnalysisInfo(Processing):
             # Get machine description ad json.
             machine = task.guest.to_dict()
             # Remove useless task_id.
-            del(machine["task_id"])
+            del machine["task_id"]
             # Save.
             self.task["machine"] = machine
+        distributed = dict()
+        parsed_options = get_options(self.task["options"])
+        parent_sample_details = False
+        if "maint_task_id" not in parsed_options:
+            parent_sample_details = db.list_sample_parent(task_id=self.task["id"])
+        source_url = db.get_source_url(sample_id=self.task["sample_id"])
 
         return dict(
             version=CUCKOO_VERSION,
@@ -135,5 +117,9 @@ class AnalysisInfo(Processing):
             shrike_msg=self.task["shrike_msg"],
             shrike_sid=self.task["shrike_sid"],
             parent_id=self.task["parent_id"],
-            options=self.get_options(self.task["options"])
+            tlp=self.task["tlp"],
+            parent_sample=parent_sample_details,
+            distributed=distributed,
+            options=parsed_options,
+            source_url=source_url,
         )

@@ -2,7 +2,7 @@
 Web interface
 =============
 
-Cuckoo provides a full-fledged web interface in the form of a Django application.
+CAPE provides a full-fledged web interface in the form of a Django application.
 This interface will allow you to submit files, browse through the reports as well
 as search across all the analysis results.
 
@@ -17,8 +17,8 @@ the database modules enabled at a time.
 
 The interface can be configured by editing ``local_settings.py`` under ``web/web/``::
 
-    # If you want to customize your cuckoo path set it here.
-    # CUCKOO_PATH = "/where/cuckoo/is/placed/"
+    # If you want to customize your CAPE path set it here.
+    # CAPE_PATH = "/where/CAPE/is/placed/"
 
     # Maximum upload size.
     MAX_UPLOAD_SIZE = 26214400
@@ -64,16 +64,33 @@ Usage
 In order to start the web interface, you can simply run the following command
 from the ``web/`` directory::
 
-    $ python manage.py runserver
+    $ python3 manage.py runserver
 
 If you want to configure the web interface as listening for any IP on a
 specified port, you can start it with the following command (replace PORT
 with the desired port number)::
 
-    $ python manage.py runserver 0.0.0.0:PORT
+    $ python3 manage.py runserver 0.0.0.0:PORT
 
-You can serve Cuckoo's web interface using WSGI interface with common web servers:
+You can serve CAPE's web interface using WSGI interface with common web servers:
 Apache, Nginx, Unicorn and so on.
 Please refer both to the documentation of the web server of your choice as well as `Django documentation`_.
 
 .. _`Django documentation`: https://docs.djangoproject.com/
+
+Exposed to internet
+===================
+
+To get rid of many bots/scrappers so we suggest to deploy this amazing project `Nginx Ultimate bad bot blocker`_, follow readme for instalation steps
+
+* Enable web auth with captcha in `conf/web.conf` preferly to avoid any bruteforce.
+* Enable `ReCaptcha`_. You will need to set ``Public`` and ``Secret`` keys in ``web/web/settings.py``
+* `AllAuth`_ aka SSO autentification with Google, Github, etc. `Video Tutorial`_ & `StackOverflow Example`_:
+    * Note ``SITE_ID=1`` in django admin is ``example.com`` rename it to your domain to get it working
+
+.. _`AllAuth`: https://django-allauth.readthedocs.io/
+.. _`Video Tutorial`: https://www.youtube.com/watch?v=1yqKNQ3ogKQ
+.. _`StackOverflow example`: https://stackoverflow.com/a/64524223/1294762
+.. _`Nginx Ultimate bad bot blocker`: https://github.com/mitchellkrogza/nginx-ultimate-bad-bot-blocker/
+.. _`ReCaptcha`: https://www.google.com/recaptcha/admin/
+

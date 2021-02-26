@@ -3,14 +3,12 @@
 # See the file 'docs/LICENSE' for copying permission.
 
 from __future__ import absolute_import
+
 LOCAL_SETTINGS = True
 from .settings import *
 
 # If you want to customize your cuckoo path set it here.
 # CUCKOO_PATH = "/where/cuckoo/is/placed/"
-
-# Maximum upload size.
-MAX_UPLOAD_SIZE = 26214400
 
 # Override default secret key stored in secret_key.py
 # Make this unique, and don't share it with anybody.
@@ -37,3 +35,26 @@ DEBUG = True
 # When DEBUG is True or when running tests, host validation is disabled; any
 # host will be accepted. Thus it's usually only necessary to set it in production.
 ALLOWED_HOSTS = ["*"]
+
+# Uncomment for deployment with NGINX
+#STATIC_ROOT = ""
+#STATIC_ROOT = os.path.join(os.getcwd(), "static")
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        }
+    },
+    'github': {
+        'SCOPE': [
+            'user',
+            'repo',
+            'read:org',
+        ],
+    },
+}

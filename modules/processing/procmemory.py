@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+
 # Copyright (C) 2010-2015 Cuckoo Foundation.
 # This file is part of Cuckoo Sandbox - http://www.cuckoosandbox.org
 # See the file 'docs/LICENSE' for copying permission.
@@ -8,6 +9,7 @@ import os
 
 try:
     import re2 as re
+
     HAVE_RE2 = True
 except ImportError:
     HAVE_RE2 = False
@@ -20,8 +22,10 @@ from lib.cuckoo.common.constants import CUCKOO_ROOT
 
 log = logging.getLogger(__name__)
 
+
 class ProcessMemory(Processing):
     """Analyze process memory dumps."""
+
     order = 10
 
     def get_procmemory_pe(self, mem_pe):
@@ -37,13 +41,32 @@ class ProcessMemory(Processing):
                     file_item.seek(chunk["offset"])
                     data += file_item.read(int(chunk["size"], 16))
 
-            #save pe to disk
+            # save pe to disk
             path = os.path.join(self.pmemory_path, "{}_{}".format(mem_pe["pid"], memmap["start"]))
             with open(path, "wb") as f:
                 f.write(data)
 
-            res.append(File(path).get_all())
+            data, pefile_object = File(path).get_all()
+            if pefile_object:
+                self.results.setdefault("pefiles", {})
+                self.results["pefiles"].setdefault(data["sha256"], pefile_object)
+            res.append(data)
         return res
+
+    def get_yara_memblock(self, addr_space, yaraoffset):
+        lastoffset = 0
+        lastmemmap = addr_space[0]
+        for memmap in addr_space:
+            for chunk in memmap["chunks"]:
+                offset = chunk["offset"]
+                if offset > yaraoffset > lastoffset:
+                    if int(memmap["start"], 16) < int(chunk["start"], 16) < int(memmap["end"], 16):
+                        return memmap["start"]
+                    else:
+                        return lastmemmap["start"]
+                lastoffset = offset
+            lastmemmap = memmap
+        return
 
     def run(self):
         """Run analysis.
@@ -82,12 +105,19 @@ class ProcessMemory(Processing):
                     pid=process_id,
                     name=process_name,
                     path=process_path,
-                    yara=dmp_file.get_yara(os.path.join(CUCKOO_ROOT, "data", "yara", "index_memory.yar")),
-                    cape_yara=dmp_file.get_yara(os.path.join(CUCKOO_ROOT, "data", "yara", "index_CAPE.yar")),
+                    yara=dmp_file.get_yara(category="memory"),
+                    cape_yara=dmp_file.get_yara(category="CAPE"),
                     address_space=procdump.pretty_print(),
                 )
 
-                #if self.options.get("extract_pe", False)
+                for hit in proc["cape_yara"]:
+                    hit["memblocks"] = dict()
+                    for item in hit["addresses"]:
+                        memblock = self.get_yara_memblock(proc["address_space"], hit["addresses"][item])
+                        if memblock:
+                            hit["memblocks"][item] = memblock
+
+                # if self.options.get("extract_pe", False)
                 extracted_pes = self.get_procmemory_pe(proc)
 
                 endlimit = b""
@@ -111,11 +141,19 @@ class ProcessMemory(Processing):
 
                     proc["strings_path"] = dmp_path + ".strings"
                     proc["extracted_pe"] = extracted_pes
-                    f=open(proc["strings_path"], "wb")
+                    f = open(proc["strings_path"], "wb")
                     f.write(b"\n".join(strings))
                     f.close()
 
                 procdump.close()
                 results.append(proc)
+                if "cape_yara" in proc:
+                    cape_name = ""
+                    for hit in proc["cape_yara"]:
+                        if "name" in hit:
+                            if not cape_name:
+                                cape_name = hit["name"]
+                    if cape_name:
+                        if "detections" not in self.results:
+                            self.results["detections"] = cape_name
         return results
-

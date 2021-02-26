@@ -25,13 +25,12 @@ Notes:
 # *                              General Imports                             *
 # ****************************************************************************
 
-from __future__ import absolute_import
 import os
 import sys
 import errno
 import argparse
 import regex as re
-import StringIO
+from io import StringIO
 from subprocess import Popen
 
 # ****************************************************************************
@@ -42,6 +41,8 @@ import networkx as nx
 from networkx.drawing.nx_pydot import write_dot
 try:
     from oletools.olevba import VBA_Parser
+    # Temporary workaround. Change when oletools 0.56 will be released.
+    VBA_Parser.detect_vba_stomping = lambda self: False
     HAVE_OLETOOLS = True
 except ImportError:
     HAVE_OLETOOLS = False
@@ -270,8 +271,8 @@ def create_functions_listing(function_dict, code_output_path):
     for func_name in function_dict:
         # limit func_name size to display
         func_name_limited = func_name[:70]
-        prefix_padding = ((77 - len(func_name_limited)) / 2) * " "
-        suffix_padding = (77 - len(prefix_padding) - len(func_name_limited)) * " "
+        prefix_padding = int((77 - len(func_name_limited)) / 2) * " "
+        suffix_padding = int(77 - len(prefix_padding) - len(func_name_limited)) * " "
 
         f_output.write("'" + "*" * 79)
         f_output.write("\n")
@@ -664,14 +665,13 @@ def create_call_graph(vba_func_dict):
     DG = nx.DiGraph()
     for func_name in vba_func_dict:
         DG.add_node(func_name, keywords="")
-
     # analyze function calls
     for func_name in vba_func_dict:
 
         func_code = vba_func_dict[func_name]
         # split function code into tokens
-        func_code_tokens = [_f for _f in re.split('[\"(, \-!?:\r\n)&=.><]+',
-                                                 func_code) if _f]
+        func_code_tokens = list(filter(None, re.split('[\"(, \-!?:\r\n)&=.><]+',
+                                                 func_code)))
         # inside each function's code, we are looking for a function name
         for func_name1 in vba_func_dict:
             orig_func_name = func_name1
@@ -713,7 +713,7 @@ def find_keywords_in_graph(vba_func_dict, DG):
 
         func_code = vba_func_dict[func_name]
         # split function code into lines
-        func_code_lines = [_f for _f in re.split("\n", func_code) if _f]
+        func_code_lines = filter(None, re.split("\n", func_code))
 
         # handle malicious keywords
         keywords_re_sensetive = "(" + ")|(".join(lst_mal_case_sensetive) + ")"
@@ -745,16 +745,15 @@ def find_keywords_in_graph(vba_func_dict, DG):
                 keyword_color = color_scheme["COLOR_REGULAR_KEYWORD"]
 
             keyword_count = dict_items[dic_key]
-            if DG.node[func_name]["keywords"] != "":
-                DG.node[func_name]["keywords"] = DG.node[func_name]["keywords"] + ","
+            if DG.nodes[func_name]["keywords"] != "":
+                DG.nodes[func_name]["keywords"] = DG.nodes[func_name]["keywords"] + ","
 
-            DG.node[func_name]["keywords"] = DG.node[func_name]["keywords"] + "<font color='" + keyword_color + "'>" + dic_key + "[" + str(keyword_count) + "]" + "</font>"
+            DG.nodes[func_name]["keywords"] = DG.nodes[func_name]["keywords"] + "<font color='" + keyword_color + "'>" + dic_key + "[" + str(keyword_count) + "]" + "</font>"
 
         # handle autorun keywords
         keywords_re = "(" + ")|(".join(lst_autorun) + ")"
         if re.match(keywords_re, func_name, re.IGNORECASE):
-            DG.node[func_name]["color"] = color_scheme["COLOR_AUTORUN_FUNCTIONS"]
-
+            DG.nodes[func_name]["color"] = color_scheme["COLOR_AUTORUN_FUNCTIONS"]
     return DG
 
 
@@ -783,7 +782,7 @@ def find_change_flow(vba_func_dict, DG):
     for func_name in vba_func_dict:
         func_code = vba_func_dict[func_name]
         # split function code into lines
-        func_code_lines = [_f for _f in re.split("\n", func_code) if _f]
+        func_code_lines = filter(None, re.split("\n", func_code))
         for func_line in func_code_lines:
             for changed_object in changed_objects:
                 # look for .[changed_object] pattern, followd by "="
@@ -808,32 +807,32 @@ def design_graph_dot(DG):
     """
     # locate malicious keywords
     for key in DG:
-        if "color" not in DG.node[key]:
-            DG.node[key]["color"] = color_scheme["COLOR_DEFAULT_BOX"]
-        DG.node[key]["fontcolor"] = color_scheme["COLOR_DEFAULT_TEXT"]
+        if "color" not in DG.nodes[key]:
+            DG.nodes[key]["color"] = color_scheme["COLOR_DEFAULT_BOX"]
+        DG.nodes[key]["fontcolor"] = color_scheme["COLOR_DEFAULT_TEXT"]
 
         # handle functions without keywords - create box shape
-        if DG.node[key]["keywords"] == "":
-            DG.node[key]['shape'] = "box"
+        if DG.nodes[key]["keywords"] == "":
+            DG.nodes[key]['shape'] = "box"
 
             # color external functions
             if "(External)" in key:
-                DG.node[key]["color"] = color_scheme["COLOR_EXTERNAL_FUNCTION"]
+                DG.nodes[key]["color"] = color_scheme["COLOR_EXTERNAL_FUNCTION"]
 
         # handle functions with keywords - create html table
         else:
-            DG.node[key]["shape"] = "plaintext"
-            DG.node[key]["margin"] = 0
+            DG.nodes[key]["shape"] = "plaintext"
+            DG.nodes[key]["margin"] = 0
 
             header = key
-            content = DG.node[key]["keywords"]
-            DG.node[key]["label"] = r"<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\"><TR><TD><FONT FACE=\"Courier\">" + header + r"</FONT></TD></TR><TR><TD><FONT FACE=\"Courier Bold\">" + content + r"</FONT></TD></TR></TABLE>>"
+            content = DG.nodes[key]["keywords"]
+            DG.nodes[key]["label"] = r"<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\"><TR><TD><FONT FACE=\"Courier\">" + header + r"</FONT></TD></TR><TR><TD><FONT FACE=\"Courier Bold\">" + content + r"</FONT></TD></TR></TABLE>>"
             # fix a bug in DOT generation
-            DG.node[key]["keywords"] = ""
+            DG.nodes[key]["keywords"] = ""
 
             # color VBA properties
             if "(Property)" in key:
-                DG.node[key]["color"] = color_scheme["COLOR_PROPERTY"]
+                DG.nodes[key]["color"] = color_scheme["COLOR_PROPERTY"]
 
     # graph background color
     DG.add_node("graph", bgcolor=color_scheme["COLOR_BACKGROUND"])
@@ -908,12 +907,14 @@ def vba2graph_from_vba_object(filepath):
     for (subfilename, stream_path, vba_filename, vba_code) in vba.extract_macros():
         full_vba_code += 'VBA MACRO %s \n' % vba_filename
         full_vba_code += '- '*39 + '\n'
+        # Temporary workaround. Change when oletools 0.56 will be released.
+        if isinstance(vba_code, bytes):
+            vba_code = vba_code.decode('utf8', errors='replace')
         full_vba_code += vba_code
     vba.close()
     if full_vba_code:
         input_vba_content = handle_olevba_input(full_vba_code)
         return input_vba_content
-
     return False
 
 def vba2graph_gen(input_vba_content, output_folder="output", input_file_name="vba2graph", color_scheme=color_scheme):
@@ -939,7 +940,7 @@ def vba2graph_gen(input_vba_content, output_folder="output", input_file_name="vb
     vba_prop_dict = vba_extract_properties(vba_content_lines_no_metadata)
 
     # treat properties like functions and merge both dictionaries
-    vba_func_dict = dict(list(vba_func_dict.items()) + list(vba_prop_dict.items()))
+    vba_func_dict = dict(vba_func_dict.items() | vba_prop_dict.items())
 
     ##############################################################################
     # at this point, vba_func_dict should contain the code of functions and
@@ -986,15 +987,15 @@ def vba2graph_gen(input_vba_content, output_folder="output", input_file_name="vb
     dot_output_path = dot_folder + os.sep + input_file_name + '.dot'
 
     # redirect NetworkX write_dot output to StringIO for further manipulation
-    str_io_dot = StringIO.StringIO()
+    str_io_dot = StringIO()
     write_dot(DG, str_io_dot)
-    str_dot = str_io_dot.getvalue()
+    str_dot = str_io_dot.getvalue().replace('\\', '')
     str_io_dot.close()
 
     # check if our DOT file is broken (one of the funciton names was reserved keyword)
     str_dot = fix_dot_output(str_dot)
 
-    with open(dot_output_path, 'w') as the_file:
+    with open(dot_output_path, 'wb') as the_file:
         the_file.write(str_dot.encode("utf-8", errors="ignore"))
 
     ##############################
@@ -1040,11 +1041,8 @@ def main():
 
     # argument parser would be modified, depended on if we have input in the pipe
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-            "-o", "--output", required=False, help="output folder (default: \"output\")")
-    ap.add_argument(
-            "-c", "--colors", required=False, type=int, choices=[0, 1, 2, 3],
-            help="color scheme number [0, 1, 2, 3] (default: 0 - B&W)")
+    ap.add_argument("-o", "--output", required=False, help="output folder (default: \"output\")")
+    ap.add_argument("-c", "--colors", required=False, type=int, choices=[0, 1, 2, 3], help="color scheme number [0, 1, 2, 3] (default: 0 - B&W)")
 
     if is_pipe:
         input_content = sys.stdin.read()
@@ -1054,10 +1052,8 @@ def main():
 
     else:
         input_group = ap.add_mutually_exclusive_group(required=True)
-        input_group.add_argument(
-            "-i", "--input", required=False, default=False, help="olevba generated file or .bas file")
-        input_group.add_argument(
-            "-f", "--file", required=False, default=False, help="Office file with macros")
+        input_group.add_argument("-i", "--input", required=False, default=False, help="olevba generated file or .bas file")
+        input_group.add_argument("-f", "--file", required=False, default=False, help="Office file with macros")
 
         cmd_args = vars(ap.parse_args())
 
@@ -1093,6 +1089,7 @@ def main():
         output_folder = cmd_args["output"]
 
     vba2graph_gen(input_vba_content, output_folder, input_file_name, color_scheme)
+
 
 if __name__ == '__main__' and __package__ is None:
     logging.basicConfig(level=logging.INFO)

@@ -3,18 +3,21 @@
 # See the file 'docs/LICENSE' for copying permission.
 
 from __future__ import absolute_import
-import binascii
+import os
+import mmap
+import time
+import copy
+import struct
 import hashlib
 import logging
-import os
+import binascii
 import subprocess
-import mmap
-import struct
-import copy
 
 from lib.cuckoo.common.constants import CUCKOO_ROOT
 from lib.cuckoo.common.defines import PAGE_NOACCESS, PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY, PAGE_EXECUTE, PAGE_EXECUTE_READ
 from lib.cuckoo.common.defines import PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_GUARD, PAGE_NOCACHE, PAGE_WRITECOMBINE
+#from lib.cuckoo.core.startup import init_yara
+from lib.cuckoo.common.exceptions import CuckooStartupError
 
 try:
     import magic
@@ -24,40 +27,47 @@ except ImportError:
 
 try:
     import pydeep
+
     HAVE_PYDEEP = True
 except ImportError:
     HAVE_PYDEEP = False
 
 try:
     import yara
+
     HAVE_YARA = True
 except ImportError:
     HAVE_YARA = False
 
 try:
     import pyclamd
+
     HAVE_CLAMAV = True
 except ImportError:
     HAVE_CLAMAV = False
-
-try:
-    import pefile
-    import peutils
-    HAVE_PEFILE = True
-except ImportError:
-    HAVE_PEFILE = False
 
 try:
     import re2 as re
 except ImportError:
     import re
 
+try:
+    import pefile
+
+    HAVE_PEFILE = True
+except ImportError:
+    HAVE_PEFILE = False
+
+try:
+    import tlsh
+    HAVE_TLSH = True
+except ImportError:
+    print("Missed dependency: pip3 install python-tlsh")
+    HAVE_TLSH = False
+
 log = logging.getLogger(__name__)
 
 FILE_CHUNK_SIZE = 16 * 1024
-
-CAPE_YARA_RULEPATH = \
-    os.path.join(CUCKOO_ROOT, "data", "yara", "index_CAPE.yar")
 
 yara_error = {
     "1": "ERROR_INSUFFICIENT_MEMORY",
@@ -110,6 +120,78 @@ yara_error = {
     "49": "ERROR_REGULAR_EXPRESSION_TOO_COMPLEX",
 }
 
+IMAGE_DOS_SIGNATURE = 0x5A4D
+IMAGE_NT_SIGNATURE = 0x00004550
+OPTIONAL_HEADER_MAGIC_PE = 0x10B
+OPTIONAL_HEADER_MAGIC_PE_PLUS = 0x20B
+IMAGE_FILE_EXECUTABLE_IMAGE = 0x0002
+IMAGE_FILE_MACHINE_I386 = 0x014C
+IMAGE_FILE_MACHINE_AMD64 = 0x8664
+DOS_HEADER_LIMIT = 0x40
+PE_HEADER_LIMIT = 0x200
+
+def IsPEImage(buf, size=False):
+    if not buf:
+        return False
+    if not size:
+        size = len(buf)
+    if size < DOS_HEADER_LIMIT:
+        return False
+    if isinstance(buf, str):
+        buf = buf.encode("utf-8")
+    dos_header = buf[:DOS_HEADER_LIMIT]
+    nt_headers = None
+
+    if size < PE_HEADER_LIMIT:
+        return False
+
+    # Check for sane value in e_lfanew
+    (e_lfanew,) = struct.unpack("<L", dos_header[60:64])
+    if not e_lfanew or e_lfanew > PE_HEADER_LIMIT:
+        offset = 0
+        while offset < PE_HEADER_LIMIT - 86:
+            # ToDo
+            try:
+                machine_probe = struct.unpack("<H", buf[offset: offset + 2])[0]
+            except struct.error:
+                machine_probe = ""
+            if machine_probe and machine_probe in (IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_AMD64):
+                nt_headers = buf[offset - 4 : offset + 252]
+                break
+            offset = offset + 2
+    else:
+        nt_headers = buf[e_lfanew : e_lfanew + 256]
+
+    if not nt_headers:
+        return False
+
+    try:
+        # if ((pNtHeader->FileHeader.Machine == 0) || (pNtHeader->FileHeader.SizeOfOptionalHeader == 0 || pNtHeader->OptionalHeader.SizeOfHeaders == 0))
+        if struct.unpack("<H", nt_headers[4:6]) == 0 or struct.unpack("<H", nt_headers[20:22]) == 0 or struct.unpack("<H", nt_headers[84:86]) == 0:
+            return False
+
+        # if (!(pNtHeader->FileHeader.Characteristics & IMAGE_FILE_EXECUTABLE_IMAGE))
+        if (struct.unpack("<H", nt_headers[22:24])[0] & IMAGE_FILE_EXECUTABLE_IMAGE) == 0:
+            return False
+
+        # if (pNtHeader->FileHeader.SizeOfOptionalHeader & (sizeof (ULONG_PTR) - 1))
+        if struct.unpack("<H", nt_headers[20:22])[0] & 3 != 0:
+            return False
+
+        # if ((pNtHeader->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC) && (pNtHeader->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC))
+        if (
+            struct.unpack("<H", nt_headers[24:26])[0] != OPTIONAL_HEADER_MAGIC_PE
+            and struct.unpack("<H", nt_headers[24:26])[0] != OPTIONAL_HEADER_MAGIC_PE_PLUS
+        ):
+            return False
+
+    except struct.error:
+        return False
+
+    # To pass the above tests it should now be safe to assume it's a PE image
+
+    return True
+
 
 class Dictionary(dict):
     """Cuckoo custom dict."""
@@ -120,10 +202,13 @@ class Dictionary(dict):
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
 
+
 class PCAP:
     """PCAP base object."""
+
     def __init__(self, file_path):
         self.file_path = file_path
+
 
 class URL:
     """URL base object."""
@@ -132,11 +217,13 @@ class URL:
         """@param url: URL"""
         self.url = url
 
+
 class File(object):
     """Basic file object class with all useful utilities."""
 
-    YARA_RULEPATH = \
-        os.path.join(CUCKOO_ROOT, "data", "yara", "index_binaries.yar")
+    # The yara rules should not change during one Cuckoo run and as such we're
+    # caching 'em. This dictionary is filled during init_yara().
+    yara_rules = {}
 
     # static fields which indicate whether the user has been
     # notified about missing dependencies already
@@ -151,12 +238,14 @@ class File(object):
 
         # these will be populated when first accessed
         self._file_data = None
-        self._crc32     = None
-        self._md5       = None
-        self._sha1      = None
-        self._sha256    = None
-        self._sha512    = None
-        self._pefile    = False
+        self._crc32 = None
+        self._md5 = None
+        self._sha1 = None
+        self._sha256 = None
+        self._sha512 = None
+        self._pefile = False
+        self.file_type = None
+        self.pe = None
 
     def get_name(self):
         """Get file name.
@@ -168,9 +257,7 @@ class File(object):
         return file_name
 
     def valid(self):
-        return os.path.exists(self.file_path) and \
-            os.path.isfile(self.file_path) and \
-            os.path.getsize(self.file_path) != 0
+        return os.path.exists(self.file_path) and os.path.isfile(self.file_path) and os.path.getsize(self.file_path) != 0
 
     def get_data(self):
         """Read file contents.
@@ -184,16 +271,21 @@ class File(object):
         with open(self.file_path, "rb") as fd:
             while True:
                 chunk = fd.read(FILE_CHUNK_SIZE)
-                if not chunk: break
+                if not chunk:
+                    break
                 yield chunk
 
     def calc_hashes(self):
         """Calculate all possible hashes for this file."""
-        crc    = 0
-        md5    = hashlib.md5()
-        sha1   = hashlib.sha1()
+        crc = 0
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
         sha256 = hashlib.sha256()
         sha512 = hashlib.sha512()
+        sha3_384 = hashlib.sha3_384()
+
+        if HAVE_TLSH:
+            tlsh_hash = tlsh.Tlsh()
 
         for chunk in self.get_chunks():
             crc = binascii.crc32(chunk, crc)
@@ -201,50 +293,69 @@ class File(object):
             sha1.update(chunk)
             sha256.update(chunk)
             sha512.update(chunk)
+            sha3_384.update(chunk)
+            if HAVE_TLSH:
+                tlsh_hash.update(chunk)
 
-        self._crc32  = "".join("%02X" % ((crc>>i)&0xff) for i in [24, 16, 8, 0])
-        self._md5    = md5.hexdigest()
-        self._sha1   = sha1.hexdigest()
+        self._crc32 = "".join("%02X" % ((crc >> i) & 0xFF) for i in [24, 16, 8, 0])
+        self._md5 = md5.hexdigest()
+        self._sha1 = sha1.hexdigest()
         self._sha256 = sha256.hexdigest()
         self._sha512 = sha512.hexdigest()
+        self._sha3_384 = sha3_384.hexdigest()
+        if HAVE_TLSH:
+            try:
+                tlsh_hash.final()
+                self._tlsh_hash = tlsh_hash.hexdigest()
+            except ValueError:
+                pass
+                #print("TLSH: less than 50 of input, ignoring")
 
     @property
     def file_data(self):
-        if not self._file_data: self._file_data = open(self.file_path, "rb").read()
+        if not self._file_data:
+            self._file_data = open(self.file_path, "rb").read()
         return self._file_data
 
     def get_size(self):
         """Get file size.
         @return: file size.
         """
-        return os.path.getsize(self.file_path)
+        if os.path.exists(self.file_path):
+            return os.path.getsize(self.file_path)
+        else:
+            return 0
 
     def get_crc32(self):
         """Get CRC32.
         @return: CRC32.
         """
-        if not self._crc32: self.calc_hashes()
+        if not self._crc32:
+            self.calc_hashes()
         return self._crc32
 
     def get_md5(self):
         """Get MD5.
         @return: MD5.
         """
-        if not self._md5: self.calc_hashes()
+        if not self._md5:
+            self.calc_hashes()
         return self._md5
 
     def get_sha1(self):
         """Get SHA1.
         @return: SHA1.
         """
-        if not self._sha1: self.calc_hashes()
+        if not self._sha1:
+            self.calc_hashes()
         return self._sha1
 
     def get_sha256(self):
         """Get SHA256.
         @return: SHA256.
         """
-        if not self._sha256: self.calc_hashes()
+        if not self._sha256:
+            self.calc_hashes()
         return self._sha256
 
     def get_sha512(self):
@@ -252,8 +363,18 @@ class File(object):
         Get SHA512.
         @return: SHA512.
         """
-        if not self._sha512: self.calc_hashes()
+        if not self._sha512:
+            self.calc_hashes()
         return self._sha512
+
+    def get_sha3_384(self):
+        """
+        Get SHA3_384.
+        @return: SHA3_384.
+        """
+        if not self._sha3_384:
+            self.calc_hashes()
+        return self._sha3_384
 
     def get_ssdeep(self):
         """Get SSDEEP.
@@ -262,7 +383,7 @@ class File(object):
         if not HAVE_PYDEEP:
             if not File.notified_pydeep:
                 File.notified_pydeep = True
-                log.warning("Unable to import pydeep (install with `pip install pydeep`)")
+                log.warning("Unable to import pydeep (install with `pip3 install pydeep`)")
             return None
 
         try:
@@ -270,180 +391,153 @@ class File(object):
         except Exception:
             return None
 
-    def get_entrypoint(self):
+    def get_entrypoint(self, pe):
         """Get entry point (PE).
         @return: entry point.
         """
-        if not HAVE_PEFILE:
-            if not File.notified_pefile:
-                File.notified_pefile = True
-                log.warning("Unable to import pefile (install with `pip install pefile`)")
-            return None
 
         try:
-            pe = pefile.PE(data=self.file_data)
             return pe.OPTIONAL_HEADER.AddressOfEntryPoint
         except Exception:
             return None
 
-    def get_ep_bytes(self):
+    def get_ep_bytes(self, pe):
         """Get entry point bytes (PE).
         @return: entry point bytes (16).
         """
-        if not HAVE_PEFILE:
-            if not File.notified_pefile:
-                File.notified_pefile = True
-                log.warning("Unable to import pefile (install with `pip install pefile`)")
-            return None
-
         try:
-            pe = pefile.PE(data=self.file_data)
-            return binascii.b2a_hex(pe.get_data(pe.OPTIONAL_HEADER.AddressOfEntryPoint, 0x10))
+            return binascii.b2a_hex(pe.get_data(pe.OPTIONAL_HEADER.AddressOfEntryPoint, 0x10)).decode("utf-8")
         except Exception:
             return None
-
-    def get_type(self):
-        """Get MIME file type.
-        @return: file type.
-        """
-        file_type = None
-        if HAVE_MAGIC:
-            try:
-                ms = magic.open(magic.MAGIC_SYMLINK)
-                ms.load()
-                file_type = ms.file(self.file_path)
-            except:
-                try:
-                    file_type = magic.from_file(self.file_path)
-                except:
-                    pass
-            finally:
-                try:
-                    ms.close()
-                except:
-                    pass
-
-        if file_type is None:
-            try:
-                p = subprocess.Popen(["file", "-b", "-L", self.file_path],
-                                     stdout=subprocess.PIPE)
-                file_type = p.stdout.read().strip()
-            except:
-                pass
-
-        return file_type
 
     def get_content_type(self):
         """Get MIME content file type (example: image/jpeg).
         @return: file content type.
         """
         file_type = None
-        if HAVE_MAGIC:
-            try:
-                ms = magic.open(magic.MAGIC_MIME|magic.MAGIC_SYMLINK)
-                ms.load()
-                file_type = ms.file(self.file_path)
-            except:
-                try:
-                    file_type = magic.from_file(self.file_path, mime=True)
-                except:
-                    pass
-            finally:
-                try:
-                    ms.close()
-                except:
-                    pass
+        if os.path.exists(self.file_path):
+            if HAVE_MAGIC:
+                if hasattr(magic, "from_file"):
+                    try:
+                        file_type = magic.from_file(self.file_path)
+                    except Exception as e:
+                        log.error(e, exc_info=True)
+                if not file_type and hasattr(magic, "open"):
+                    try:
+                        ms = magic.open(magic.MAGIC_MIME|magic.MAGIC_SYMLINK)
+                        ms.load()
+                        file_type = ms.file(self.file_path)
+                        ms.close()
+                    except Exception as e:
+                        log.error(e, exc_info=True)
 
-        if file_type is None:
-            try:
-                p = subprocess.Popen(["file", "-b", "-L", "--mime-type", self.file_path],
-                                     stdout=subprocess.PIPE)
-                file_type = p.stdout.read().strip()
-            except:
-                pass
+            if file_type is None:
+                try:
+                    p = subprocess.Popen(["file", "-b", "-L", "--mime-type", self.file_path], universal_newlines=True, stdout=subprocess.PIPE)
+                    file_type = p.stdout.read().strip()
+                except Exception as e:
+                    log.error(e, exc_info=True)
 
         return file_type
+
+
+    def get_type(self):
+        """Get MIME file type.
+        @return: file type.
+        """
+        if self.file_type:
+            return self.file_type
+        if self.file_path:
+            try:
+                if IsPEImage(self.file_data):
+                    self._pefile = True
+                    if not HAVE_PEFILE:
+                        if not File.notified_pefile:
+                            File.notified_pefile = True
+                            log.warning("Unable to import pefile (install with `pip3 install pefile`)")
+                    else:
+                        try:
+                            self.pe = pefile.PE(data=self.file_data, fast_load=True)
+                        except pefile.PEFormatError:
+                            self.file_type = "PE image for MS Windows"
+                            log.error('Unable to instantiate pefile on image')
+                        if self.pe:
+                            is_dll = self.pe.is_dll()
+                            is_x64 = self.pe.FILE_HEADER.Machine == IMAGE_FILE_MACHINE_AMD64
+                            # Emulate magic for now
+                            if is_dll and is_x64:
+                                self.file_type = "PE32+ executable (DLL) (GUI) x86-64, for MS Windows"
+                            elif is_dll:
+                                self.file_type = "PE32 executable (DLL) (GUI) Intel 80386, for MS Windows"
+                            elif is_x64:
+                                self.file_type = "PE32+ executable (GUI) x86-64, for MS Windows"
+                            else:
+                                self.file_type = "PE32 executable (GUI) Intel 80386, for MS Windows"
+            except Exception as e:
+                log.error(e, exc_info=True)
+
+            if not self.file_type:
+                self.file_type = self.get_content_type()
+
+        return self.file_type
 
     def _yara_encode_string(self, s):
         # Beware, spaghetti code ahead.
         try:
-            new = s#.encode("utf-8")
+            new = s  # .encode("utf-8")
         except UnicodeDecodeError:
-            s = binascii.hexlify(s.lstrip("uU")).upper()
-            s = " ".join(s[i:i+2] for i in range(0, len(s), 2))
+            s = s.lstrip("uU").encode("hex").upper()
+            s = " ".join(s[i : i + 2] for i in range(0, len(s), 2))
             new = "{ %s }" % s
 
         return new
 
-    def get_yara(self, rulepath=YARA_RULEPATH):
+    def get_yara(self, category="binaries", externals=None):
         """Get Yara signatures matches.
         @return: matched Yara signatures.
         """
         results = []
-
         if not HAVE_YARA:
             if not File.notified_yara:
                 File.notified_yara = True
                 log.warning("Unable to import yara (please compile from sources)")
             return results
 
-        if not os.path.exists(rulepath):
-            log.warning("The specified rule file at %s doesn't exist, skip",
-                        rulepath)
-            return results
-
         if not os.path.getsize(self.file_path):
             return results
+        """
+        try:
+            # TODO Once Yara obtains proper Unicode filepath support we can
+            # remove this check. See also the following Github issue:
+            # https://github.com/VirusTotal/yara-python/issues/48
+            assert len(str(self.file_path)) == len(self.file_path)
+        except (UnicodeEncodeError, AssertionError):
+            log.warning("Can't run Yara rules on %r as Unicode paths are currently not supported in combination with Yara!", self.file_path)
+            return results
+        """
 
         try:
-            rules = False
-            externals = {}
-            try:
-                filepath = ""
-                filename = ""
-                if self.file_name:
-                    filepath = self.file_name
-                    filename = self.file_name
-                if self.guest_paths:
-                    filepath = self.guest_paths[0]
-                if filepath and filename:
-                    externals = {"filepath": filepath, "filename": filename}
-                rules = yara.compile(rulepath, externals=externals)
-            except yara.SyntaxError as e:
-                if 'duplicated identifier' in e.args[0]:
-                    log.warning("Duplicate rule in %s, rulepath")
-                    log.warning(e.args[0])
-                else:
-                    rules = yara.compile(rulepath)
-            if rules:
-                matches = rules.match(self.file_path)#.decode())
-
-                results = []
-
-                for match in matches:
-                    strings = set()
-                    for s in match.strings:
-                        strings.add(self._yara_encode_string(s[2]))
-
-                    addresses = {}
-                    for s in match.strings:
-                        addresses[s[1].strip('$')] = s[0]
-
-                    results.append({
-                        "name": match.rule,
-                        "meta": match.meta,
-                        "strings": list(strings),
-                        "addresses": addresses,
-                    })
-
-        except Exception as e:
-            errcode = e.message.split()[-1]
-            if errcode in yara_error:
-                log.exception("Unable to match Yara signatures for %s: %s",
-                               self.file_path, yara_error[errcode])
+            results, rule = [], File.yara_rules[category]
+            if isinstance(self.file_path, bytes):
+                path = self.file_path.decode("utf-8")
             else:
-                log.exception("Unable to match Yara signatures for %s: unknown code %s",
-                              self.file_path, errcode)
+                path = self.file_path
+            for match in rule.match(path, externals=externals):
+                strings = set()
+                for s in match.strings:
+                    strings.add(self._yara_encode_string(s[2]))
+
+                addresses = {}
+                for s in match.strings:
+                    addresses[s[1].strip("$")] = s[0]
+
+                results.append({"name": match.rule, "meta": match.meta, "strings": list(strings), "addresses": addresses,})
+        except Exception as e:
+            errcode = str(e).split()[-1]
+            if errcode in yara_error:
+                log.exception("Unable to match Yara signatures for %s: %s", self.file_path, yara_error[errcode])
+            else:
+                log.exception("Unable to match Yara signatures for %s: unknown code %s", self.file_path, errcode)
 
         return results
 
@@ -463,26 +557,36 @@ class File(object):
         if HAVE_CLAMAV and os.path.getsize(self.file_path) > 0:
             try:
                 cd = pyclamd.ClamdUnixSocket()
-            except:
-                log.warning("failed to connect to clamd socket")
-                return matches
-            try:
                 results = cd.allmatchscan(self.file_path)
+                if results:
+                    for entry in results[self.file_path]:
+                        if entry[0] == "FOUND" and entry[1] not in matches:
+                            matches.append(entry[1])
+            except ConnectionError as e:
+                log.warning("failed to connect to clamd socket")
             except Exception as e:
                 log.warning("failed to scan file with clamav {0}".format(e))
+            finally:
                 return matches
-            if results:
-                for key in results:
-                    for entry in results[key]:
-                        if entry[0] == "FOUND" and entry[1] not in matches:
-                                matches.append(entry[1])
-
         return matches
+
+    def get_tlsh(self):
+        """
+        Get TLSH.
+        @return: TLSH.
+        """
+        if hasattr(self, "_tlsh_hash"):
+            if not self._tlsh_hash:
+                self.calc_hashes()
+            return self._tlsh_hash
+        else:
+            return False
 
     def get_all(self):
         """Get all information available.
         @return: information dict.
         """
+
         infos = {}
         infos["name"] = self.get_name()
         infos["path"] = self.file_path
@@ -496,30 +600,37 @@ class File(object):
         infos["ssdeep"] = self.get_ssdeep()
         infos["type"] = self.get_type()
         infos["yara"] = self.get_yara()
-        infos["cape_yara"] = self.get_yara(CAPE_YARA_RULEPATH)
+        infos["cape_yara"] = self.get_yara(category="CAPE")
         infos["clamav"] = self.get_clamav()
-        infos["entrypoint"] = self.get_entrypoint()
-        infos["ep_bytes"] = self.get_ep_bytes()
+        infos["tlsh"] = self.get_tlsh()
+        infos["sha3_384"] = self.get_sha3_384()
 
-        return infos
+        if self.pe:
+            infos["entrypoint"] = self.get_entrypoint(self.pe)
+            infos["ep_bytes"] = self.get_ep_bytes(self.pe)
+            infos["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(self.pe.FILE_HEADER.TimeDateStamp))
+
+        return infos, self.pe
+
 
 class Static(File):
     pass
+
 
 class ProcDump(object):
     def __init__(self, dump_file, pretty=False):
         self._dumpfile = open(dump_file, "rb")
         self.dumpfile = mmap.mmap(self._dumpfile.fileno(), 0, access=mmap.ACCESS_READ)
         self.address_space = self.parse_dump()
-        self.protmap = protmap = {
-            PAGE_NOACCESS : "NOACCESS",
-            PAGE_READONLY : "R",
-            PAGE_READWRITE : "RW",
-            PAGE_WRITECOPY : "RWC",
-            PAGE_EXECUTE : "X",
-            PAGE_EXECUTE_READ : "RX",
-            PAGE_EXECUTE_READWRITE : "RWX",
-            PAGE_EXECUTE_WRITECOPY : "RWXC",
+        self.protmap = {
+            PAGE_NOACCESS: "NOACCESS",
+            PAGE_READONLY: "R",
+            PAGE_READWRITE: "RW",
+            PAGE_WRITECOPY: "RWC",
+            PAGE_EXECUTE: "X",
+            PAGE_EXECUTE_READ: "RX",
+            PAGE_EXECUTE_READWRITE: "RWX",
+            PAGE_EXECUTE_WRITECOPY: "RWXC",
         }
 
     def __del__(self):
@@ -536,7 +647,7 @@ class ProcDump(object):
     def _prot_to_str(self, prot):
         if prot & PAGE_GUARD:
             return "G"
-        prot &= 0xff
+        prot &= 0xFF
         return self.protmap[prot]
 
     def pretty_print(self):
@@ -564,7 +675,7 @@ class ProcDump(object):
         for chunk in chunklist:
             if chunk["prot"] != prot:
                 prot = None
-        return { "start" : low, "end" : high, "size" : high - low, "prot" : prot, "PE" : PE, "chunks" : chunklist }
+        return {"start": low, "end": high, "size": high - low, "prot": prot, "PE": PE, "chunks": chunklist}
 
     def parse_dump(self):
         f = self.dumpfile
@@ -573,17 +684,17 @@ class ProcDump(object):
         lastend = 0
         while True:
             data = f.read(24)
-            if data == b'':
+            if data == b"":
                 break
             alloc = dict()
-            addr,size,mem_state,mem_type,mem_prot = struct.unpack("QIIII", data)
+            addr, size, mem_state, mem_type, mem_prot = struct.unpack("QIIII", data)
             offset = f.tell()
             if addr != lastend and len(curchunk):
                 address_space.append(self._coalesce_chunks(curchunk))
                 curchunk = []
             lastend = addr + size
             alloc["start"] = addr
-            alloc["end"] = (addr + size)
+            alloc["end"] = addr + size
             alloc["size"] = size
             alloc["prot"] = mem_prot
             alloc["state"] = mem_state
@@ -593,7 +704,7 @@ class ProcDump(object):
             try:
                 if f.read(2) == b"MZ":
                     alloc["PE"] = True
-                f.seek(size-2, 1)
+                f.seek(size - 2, 1)
             except:
                 break
             curchunk.append(alloc)
@@ -649,3 +760,75 @@ class ProcDump(object):
                         result["chunk"] = chunk
                         return result
 
+
+# ToDo remove/unify required for static extraction
+
+def init_yara():
+    """Generates index for yara signatures."""
+
+    categories = ("binaries", "urls", "memory", "CAPE", "macro")
+
+    log.debug("Initializing Yara...")
+
+    # Generate root directory for yara rules.
+    yara_root = os.path.join(CUCKOO_ROOT, "data", "yara")
+
+    # We divide yara rules in three categories.
+    # CAPE adds a fourth
+
+    # Loop through all categories.
+    for category in categories:
+        # Check if there is a directory for the given category.
+        category_root = os.path.join(yara_root, category)
+        if not os.path.exists(category_root):
+            log.warning("Missing Yara directory: %s?", category_root)
+            continue
+
+        rules, indexed = {}, []
+        for category_root, _, filenames in os.walk(category_root, followlinks=True):
+            for filename in filenames:
+                if not filename.endswith((".yar", ".yara")):
+                    continue
+
+                filepath = os.path.join(category_root, filename)
+
+                try:
+                    # TODO Once Yara obtains proper Unicode filepath support we
+                    # can remove this check. See also this Github issue:
+                    # https://github.com/VirusTotal/yara-python/issues/48
+                    assert len(str(filepath)) == len(filepath)
+                except (UnicodeEncodeError, AssertionError):
+                    log.warning("Can't load Yara rules at %r as Unicode filepaths are " "currently not supported in combination with Yara!", filepath)
+                    continue
+
+                rules["rule_%s_%d" % (category, len(rules))] = filepath
+                indexed.append(filename)
+
+            # Need to define each external variable that will be used in the
+        # future. Otherwise Yara will complain.
+        externals = {
+            "filename": "",
+        }
+
+        try:
+            File.yara_rules[category] = yara.compile(filepaths=rules, externals=externals)
+        except yara.Error as e:
+            raise CuckooStartupError("There was a syntax error in one or more Yara rules: %s" % e)
+
+        # ToDo for Volatility3 yarascan
+        # The memory.py processing module requires a yara file with all of its
+        # rules embedded in it, so create this file to remain compatible.
+        # if category == "memory":
+        #    f = open(os.path.join(yara_root, "index_memory.yar"), "w")
+        #    for filename in sorted(indexed):
+        #        f.write('include "%s"\n' % os.path.join(category_root, filename))
+
+        indexed = sorted(indexed)
+        for entry in indexed:
+            if (category, entry) == indexed[-1]:
+                log.debug("\t `-- %s %s", category, entry)
+            else:
+                log.debug("\t |-- %s %s", category, entry)
+
+
+init_yara()

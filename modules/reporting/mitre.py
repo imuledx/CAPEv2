@@ -8,11 +8,18 @@ class MITRE_TTPS(Report):
             return
 
         attck = dict()
-        for tactic in self.mitre.tactics:
-            for technique in tactic.techniques:
-                if technique.id in list(results["ttps"].keys()):
+        ttps = list(results["ttps"].keys())
+        for technique in self.mitre.enterprise.techniques:
+            if technique.id in ttps:
+                for tactic in technique.tactics:
                     attck.setdefault(tactic.name, list())
-                    attck[tactic.name].append({"t_id": technique.id, "ttp_name": technique.name,
-                                               "description": technique.description, "signature": results["ttps"][technique.id]})
+                    attck[tactic.name].append(
+                        {
+                            "t_id": technique.id,
+                            "ttp_name": technique.name,
+                            "description": technique.description,
+                            "signature": results["ttps"][technique.id],
+                        }
+                    )
         if attck:
             results["mitre_attck"] = attck

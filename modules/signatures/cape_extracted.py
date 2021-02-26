@@ -15,6 +15,7 @@
 
 from lib.cuckoo.common.abstracts import Signature
 
+
 class CAPEExtractedContent(Signature):
     name = "cape_extracted_content"
     description = "CAPE extracted potentially suspicious content"
@@ -26,17 +27,31 @@ class CAPEExtractedContent(Signature):
 
     def run(self):
         ret = False
-        if "CAPE" in self.results:
-            for cape in self.results.get("CAPE", []):
-                capetype = cape.get("cape_type", "")
-                if not capetype:
-                    capetype = cape.get("description", "")
-                yara = cape.get("cape_yara", "")
-                process = cape.get("process_name", "")
-                if capetype and process:
-                    self.data.append({process: capetype})
-                    ret = True
-                    if yara:
-                        self.data.append({process: yara})
+        for cape in self.results.get("CAPE", {}).get("payloads", []) or []:
+            yara = cape.get("cape_yara", "") or cape.get("cape_type", "")
+            process = cape.get("process_name", "")
+            if yara and process:
+                self.data.append({process: yara})
+                ret = True
+                if yara:
+                    self.data.append({process: yara})
 
-            return ret
+        return ret
+
+class CAPEExtractedConfig(Signature):
+    name = "cape_extracted_config"
+    description = "CAPE has extracted a malware configuration"
+    severity = 3
+    categories = ["malware"]
+    authors = ["Kevin Ross"]
+    minimum = "1.3"
+    evented = True
+
+    def run(self):
+        ret = False
+        for block in self.results.get("CAPE", {}).get("cape_config", []) or []:
+            for malwarename in block.keys():
+                self.data.append({"extracted_config": malwarename})
+                ret = True
+
+        return ret

@@ -3,7 +3,7 @@
 
 <h4>Process Tree</h4>
 <ul>
-{% for process in analysis.behavior.processtree|proctreetolist %}
+{% for process in behavior.processtree|proctreetolist %}
     {% if process.startchildren %}
     <ul>
     {% elif process.endchildren %}

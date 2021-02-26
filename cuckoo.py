@@ -19,7 +19,7 @@ try:
     from lib.cuckoo.common.exceptions import CuckooDependencyError
     from lib.cuckoo.core.startup import check_working_directory, check_configs
     from lib.cuckoo.core.startup import create_structure
-    from lib.cuckoo.core.startup import init_logging, init_modules
+    from lib.cuckoo.core.startup import init_logging, init_modules, check_webgui_mongo
     from lib.cuckoo.core.startup import init_tasks, init_yara
     from lib.cuckoo.core.scheduler import Scheduler
     from lib.cuckoo.core.resultserver import ResultServer
@@ -34,6 +34,7 @@ except (CuckooDependencyError, ImportError) as e:
 
 log = logging.getLogger()
 
+
 def cuckoo_init(quiet=False, debug=False, artwork=False, test=False):
     cur_path = os.getcwd()
     os.chdir(CUCKOO_ROOT)
@@ -45,6 +46,7 @@ def cuckoo_init(quiet=False, debug=False, artwork=False, test=False):
 
     if artwork:
         import time
+
         try:
             while True:
                 time.sleep(1)
@@ -59,6 +61,7 @@ def cuckoo_init(quiet=False, debug=False, artwork=False, test=False):
     elif debug:
         log.setLevel(logging.DEBUG)
 
+    check_webgui_mongo()
     init_modules()
     init_tasks()
     init_yara()
@@ -73,6 +76,7 @@ def cuckoo_init(quiet=False, debug=False, artwork=False, test=False):
     ResultServer()
     os.chdir(cur_path)
 
+
 def cuckoo_main(max_analysis_count=0):
     cur_path = os.getcwd()
     os.chdir(CUCKOO_ROOT)
@@ -84,6 +88,7 @@ def cuckoo_main(max_analysis_count=0):
         sched.stop()
 
     os.chdir(cur_path)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -107,4 +112,3 @@ if __name__ == "__main__":
             sys.stderr.write("{0}\n".format(message))
 
         sys.exit(1)
-

@@ -16,6 +16,7 @@ sys.path.append(settings.CUCKOO_PATH)
 
 from lib.cuckoo.common.constants import CUCKOO_VERSION
 
+
 class CuckooHeaders(MiddlewareMixin):
     """Set Cuckoo custom response headers."""
 
@@ -31,5 +32,5 @@ class CuckooHeaders(MiddlewareMixin):
         response["Pragma"] = "no-cache"
         response["Cache-Control"] = "no-cache"
         response["Expires"] = "0"
-
+        response["Permissions-Policy"] = "accelerometer=(); autoplay=(); camera=(); encrypted-media=(); fullscreen=(); geolocation=(); gyroscope=(); magnetometer=(); microphone=(); midi=(); payment=(); picture-in-picture=(); sync-xhr=(); usb=();"
         return response

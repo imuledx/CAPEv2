@@ -1,8 +1,8 @@
 ==================
-Distributed Cuckoo
+Distributed CAPE
 ==================
 
-This works under the main server web interface/api, so everything is transparent for end user, even if they were analyzer on another server(s)
+This works under the main server web interface, so everything is transparent for end user, even if they were analyzer on another server(s)
 
 Deploy each server as normal serve and later just register it as worker on master server where dist.py is running
 
@@ -18,34 +18,8 @@ Starting the Distributed REST API
 =================================
 
 The Distributed REST API requires a few commandline options in order to run.
-Following is a listing of all available commandline options::
 
-    $ ./utils/dist.py -h
-
-    usage: dist.py [-h] [-d] [--uptime-logfile UPTIME_LOGFILE] [--node NODE]
-                [--delete-vm DELETE_VM] [--disable] [--enable] [--clean-slaves]
-                [-ec] [-fr FORCE_REPORTED]
-                [host] [port]
-
-    positional arguments:
-    host                  Host to listen on
-    port                  Port to listen on
-
-    optional arguments:
-    -h, --help            show this help message and exit
-    -d, --debug           Enable debug logging
-    --uptime-logfile UPTIME_LOGFILE
-                            Uptime logfile path
-    --node NODE           Node name to update in distributed DB
-    --delete-vm DELETE_VM
-                            VM name to delete from Node
-    --disable             Disable Node provided in --node
-    --enable              Enable Node provided in --node
-    --clean-slaves        Delete reported and notificated tasks from slaves
-    -ec, --enable-clean   Enable delete tasks from nodes, also will remove tasks
-                            submited by humands and not dist
-    -fr FORCE_REPORTED, --force-reported FORCE_REPORTED
-                            change report to reported
+    $ cd /opt/CAPEv2/web && python3 manage.py runserver 0.0.0.0:8000
 
 
 RESTful resources
@@ -57,9 +31,9 @@ Following are all RESTful resources. Also make sure to check out the
 +-----------------------------------+---------------------------------------------------------------+
 | Resource                          | Description                                                   |
 +===================================+===============================================================+
-| ``GET`` :ref:`node_root_get`      | Get a list of all enabled Cuckoo nodes.                       |
+| ``GET`` :ref:`node_root_get`      | Get a list of all enabled CAPE nodes  .                       |
 +-----------------------------------+---------------------------------------------------------------+
-| ``POST`` :ref:`node_root_post`    | Register a new Cuckoo node.                                   |
+| ``POST`` :ref:`node_root_post`    | Register a new CAPE node.                                     |
 +-----------------------------------+---------------------------------------------------------------+
 | ``GET`` :ref:`node_get`           | Get basic information about a node.                           |
 +-----------------------------------+---------------------------------------------------------------+
@@ -100,7 +74,7 @@ machines are returned::
 POST /node
 ----------
 
-Register a new Cuckoo node by providing the name and the URL. Optionally the ht_user and ht_pass,
+Register a new CAPE node by providing the name and the URL. Optionally the ht_user and ht_pass,
 if your Node API is behing htaccess authentication::
 
     $ curl http://localhost:9003/node -F name=localhost \
@@ -121,7 +95,7 @@ if your Node API is behing htaccess authentication::
 GET /node/<name>
 ----------------
 
-Get basic information about a particular Cuckoo node::
+Get basic information about a particular CAPE node::
 
     $ curl http://localhost:9003/node/localhost
     {
@@ -134,7 +108,7 @@ Get basic information about a particular Cuckoo node::
 PUT /node/<name>
 ----------------
 
-Update basic information of a Cuckoo node::
+Update basic information of a CAPE node::
 
     $ curl -XPUT http://localhost:9003/node/localhost -F name=newhost \
         -F url=http://1.2.3.4:8090/
@@ -143,7 +117,7 @@ Update basic information of a Cuckoo node::
     Additional Arguments:
 
     * enabled
-        False=0 or True=1 to activate or deactivate slave node
+        False=0 or True=1 to activate or deactivate worker node
     * ht_user
         Username of htaccess authentication
     * ht_pass
@@ -154,7 +128,7 @@ Update basic information of a Cuckoo node::
 DELETE /node/<name>
 -------------------
 
-Disable a Cuckoo node, therefore not having it process any new tasks, but
+Disable a CAPE node, therefore not having it process any new tasks, but
 keep its history in the Distributed's database::
 
     $ curl -XDELETE http://localhost:9003/node/localhost
@@ -167,14 +141,14 @@ Quick usage
 
 For practical usage the following few commands will be most interesting.
 
-Register a Cuckoo node - a Cuckoo REST API running on the same machine in this
+Register a CAPE node - a CAPE REST API running on the same machine in this
 case::
 
     $ curl http://localhost:9003/node -F name=master -F url=http://localhost:8090/
     Master server must be called master, the rest of names we don't care
 
 
-Disable a Cuckoo node::
+Disable a CAPE node::
 
     $ curl -XDELETE http://localhost:9003/node/<name>
 
@@ -190,14 +164,14 @@ or::
 Submit a new analysis task
     The method of submission is always the same: by rest api or via web-gui , both only pointing on the "master node".
 
-Get the report of a task should be requested throw master node integrated /api/ or api.py
+Get the report of a task should be requested throw master node integrated /api/
 
 Proposed setup
 ==============
 
-The following description depicts a Distributed Cuckoo setup with two Cuckoo
-machines, **master** and **slave**. In this setup the first machine,
-master, also hosts the Distributed Cuckoo REST API.
+The following description depicts a Distributed CAPE setup with two CAPE
+machines, **master** and **worker**. In this setup the first machine,
+master, also hosts the Distributed CAPE REST API.
 
 Configuration settings
 ----------------------
@@ -249,7 +223,7 @@ Setup Cuckoo
 On each machine the following three scripts should be ran::
 
     ./cuckoo.py
-    ./utils/api.py -H 1.2.3.4  # IP accessible by the Distributed script.
+    cd web/ && python3 manage.py runserver 8000  # IP accessible by the Distributed script.
     ./utils/process.py auto
 
 One way to do this is by placing each script in its own ``screen(1)`` session
@@ -257,34 +231,34 @@ as follows, this allows one to check back on each script to ensure it's
 (still) running successfully::
 
     $ screen -S cuckoo  ./cuckoo.py
-    $ screen -S api     ./utils/api.py
+    $ screen -S web     cd web/ && python3 manage.py runserver 8000
     $ screen -S process ./utils/process.py auto
 
 Setup Distributed Cuckoo
 ------------------------
 
 On the first machine start a separate ``screen(1)`` session for the
-Distributed Cuckoo script with all the required parameters (see the rest of
+Distributed CAPE script with all the required parameters (see the rest of
 the documentation on the parameters for this script)::
 
     $ screen -S distributed ./utils/dist.py
 
-Register Cuckoo nodes
+Register CAPE nodes
 ---------------------
 
-As outlined in :ref:`quick-usage` the Cuckoo nodes have to be registered with
-the Distributed Cuckoo script::
+As outlined in :ref:`quick-usage` the CAPE nodes have to be registered with
+the Distributed CAPE script::
 
 without htaccess::
 
-    $ curl http://localhost:9003/node -F name=master -F url=http://localhost:8090/
+    $ curl http://localhost:9003/node -F name=master -F url=http://localhost:8000/api/
 
 with htaccess::
 
-    $ curl http://localhost:9003/node -F name=slave -F url=http://1.2.3.4:8090/ \
-      -F ht_user=user -F ht_pass=password
+    $ curl http://localhost:9003/node -F name=worker -F url=http://1.2.3.4:8000/api/ \
+      -F username=user -F password=password
 
-Having registered the Cuckoo nodes all that's left to do now is to submit
+Having registered the CAPE nodes all that's left to do now is to submit
 tasks and fetch reports once finished. Documentation on these commands can be
 found in the :ref:`quick-usage` section.
 
@@ -292,14 +266,14 @@ VM Maintenance
 --------------
 
 Ocasionally you might want to perform maintenance on VM's without shutting down your whole node.
-To do this, you need to remove the VM from being used by cuckoo in its execution, preferably without
+To do this, you need to remove the VM from being used by CAPE in its execution, preferably without
 having to restart the ``./cuckoo.py`` daemon.
 
-First get a list of available VM's that are running on the slave::
+First get a list of available VM's that are running on the worker::
 
    $ ./dist.py --node NAME
 
-Secondly you can remove VM's from being used by cuckoo with::
+Secondly you can remove VM's from being used by CAPE with::
 
    $ ./dist.py --node NAME --delete-vm VM_NAME
 
@@ -308,14 +282,14 @@ way to do that, is to disable the node, so no more tasks get submitted to it::
 
    $ ./dist.py --node NAME --disable
 
-Wait for all running VM's to finish their tasks, and then restart the slaves ``./cuckoo.py``, this will
+Wait for all running VM's to finish their tasks, and then restart the workers ``./cuckoo.py``, this will
 re-insert the previously deleted VM's into the Database from ``conf/virtualbox.conf``.
 
 Update the VM list on the master::
 
    $ ./dist.py --node NAME
 
-And enable the slave again::
+And enable the worker again::
 
    $ ./dist.py --node NAME --enable
 
@@ -323,41 +297,13 @@ And enable the slave again::
 Good practice for production
 ---------------------
 
-Number of retrieved threads from reporting.conf should be less then general threads in uwsgi/gunicorn for api.py
+Number of retrieved threads can be configured in reporting.conf
 
-Installation of "uwsgi":
+Installation of "uwsgi"::
     # apt-get install uwsgi uwsgi-plugin-python nginx
     # nginx is only required if you want use basic web auth
 
-Installation of "Gunicorn":
-    # pip install gunicorn
-
-Is better if you run "api.py" and "dist.py" as uwsgi/gunicorn application
-
-With "config", for example you have file "/opt/CAPE/utils/api.ini" with this context::
-
-    [uwsgi]
-        plugins = python
-        callable = application
-        ;change this patch if is different
-        chdir = /opt/CAPE/utils
-        master = true
-        mount = /=api.py
-        processes = 5
-        manage-script-name = true
-        socket = 0.0.0.0:8090
-        http-timeout = 200
-        pidfile = /tmp/api.pid
-        ; if you will use with nginx, comment next line
-        protocol=http
-        enable-threads = true
-        lazy-apps = true
-        timeout = 600
-        chmod-socket = 664
-        chown-socket = cuckoo:cuckoo
-        gui = cuckoo
-        uid = cuckoo
-        stats = 127.0.0.1:9191
+Is better if you run "web" and "dist.py" as uwsgi application
 
 uwsgi config for dist.py - /opt/CAPE/utils/dist.ini::
 
@@ -387,13 +333,10 @@ uwsgi config for dist.py - /opt/CAPE/utils/dist.ini::
 
 To run your api with config just execute as::
 
-    $ uwsgi --ini /opt/cuckoo/utils/api.ini
+    # WEBGUI is started by systemd as cape-web.service
     $ uwsgi --ini /opt/cuckoo/utils/dist.ini
 
 To add your application to auto start after boot, move your config file to::
-
-    mv /opt/cuckoo/utils/api.ini /etc/uwsgi/apps-available/cuckoo_api.ini
-    ln -s /etc/uwsgi/apps-available/cuckoo_api.ini /etc/uwsgi/apps-enabled
 
     mv /opt/cuckoo/utils/dist.ini /etc/uwsgi/apps-available/cuckoo_dist.ini
     ln -s /etc/uwsgi/apps-available/cuckoo_dist.ini /etc/uwsgi/apps-enabled
@@ -402,7 +345,7 @@ To add your application to auto start after boot, move your config file to::
 
 Optimizations::
 
-    If you have many slaves is recommended
+    If you have many workers is recommended
         UWSGI:
             set processes to be able handle number of requests dist + dist2 + 10
         DB:
@@ -413,16 +356,18 @@ Distributed Mongo setup::
 
 Set one mongo as master and the rest just point to it, in this example cuckoo_dist.fe is our master server.
 Depend of your hardware you may prepend next command before mongod
-        numactl --interleave=all
+
+    $ numactl --interleave=all
 
 This execute on all nodes, master included:
     * Very important, before creation or recreation of cluster, all /data should be removed to avoid problems with metadata
-    mkdir -p /data/{config,}db
+
+    $ mkdir -p /data/{config,}db
 
 This commands should be executed only on master::
 
     # create config server instance with the "cuckoo_config" replica set
-    # Preferly to execute few config servers on different shards
+    # Preferly to execute few config servers on different shards
     /usr/bin/mongod --configsvr --replSet cuckoo_config --bind_ip_all
 
     # initialize the "cuckoo_config" replica set
@@ -458,12 +403,15 @@ Add clients, execute on master mongo server::
     })
 
     # Check which node is primary and change the prior if is incorrect
-    # https://docs.mongodb.com/manual/tutorial/force-member-to-be-primary/
+    # https://docs.mongodb.com/manual/tutorial/force-member-to-be-primary/
     cfg = rs.conf()
     cfg.members[0].priority = 0.5
     cfg.members[1].priority = 0.5
     cfg.members[2].priority = 1
     rs.reconfig(cfg)
+
+    # Add arbiter only
+    rs.addArb("192.168.1.51:27017")
 
     # add shards
     mongo --port 27020
@@ -474,7 +422,7 @@ Add clients, execute on master mongo server::
         sh.addShard( "rs0/192.168.1.55:27017")
         sh.addShard( "rs0/192.168.1.62:27017")
 
-Where 192.168.1.(2,3,4,5) is our cuckoo slaves::
+Where 192.168.1.(2,3,4,5) is our CAPE workers::
 
     mongo
     use cuckoo
@@ -498,7 +446,7 @@ To see stats on master::
     mongos using mongo --host 127.0.0.1 --port 27020
     sh.status()
 
-Modify cuckoo reporting.conf [mongodb] to point all mongos in reporting.conf to
+Modify cape reporting.conf [mongodb] to point all mongos in reporting.conf to
 host = 127.0.0.1
 port = 27020
 
@@ -525,26 +473,27 @@ See any of these files on your system::
     $ /etc/default/uwsgi
 
 
-Administration and some useful commands:
+Administration and some useful commands::
+
     https://docs.mongodb.com/manual/reference/command/nav-sharding/
-    mongo --host 127.0.0.1 --port 27020
-    use admin
-    db.adminCommand( { listShards: 1 } )
+    $ mongo --host 127.0.0.1 --port 27020
+    $ use admin
+    $ db.adminCommand( { listShards: 1 } )
 
-    mongo --host 127.0.0.1 --port 27019
-    db.adminCommand( { movePrimary: "cuckoo", to: "shard0000" } )
-    db.adminCommand( { removeShard : "shard0002" } )
+    $ mongo --host 127.0.0.1 --port 27019
+    $ db.adminCommand( { movePrimary: "cuckoo", to: "shard0000" } )
+    $ db.adminCommand( { removeShard : "shard0002" } )
 
-    # required for post movePrimary
-    db.adminCommand("flushRouterConfig")
-    mongo --port 27020 --eval 'db.adminCommand("flushRouterConfig")' admin
+    $ # required for post movePrimary
+    $ db.adminCommand("flushRouterConfig")
+    $ mongo --port 27020 --eval 'db.adminCommand("flushRouterConfig")' admin
 
-    use cuckoo
-    db.analysis.find({"shard" : "shard0002"},{"shard":1,"jumbo":1}).pretty()
-    db.calls.getShardDistribution()
+    $ use cuckoo
+    $ db.analysis.find({"shard" : "shard0002"},{"shard":1,"jumbo":1}).pretty()
+    $ db.calls.getShardDistribution()
 
     To migrate data ensure:
-    sh.setBalancerState(true)
+    $ sh.setBalancerState(true)
 
 Online:
 

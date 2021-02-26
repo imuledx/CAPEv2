@@ -3,6 +3,7 @@
 # See the file 'docs/LICENSE' for copying permission.
 
 from __future__ import absolute_import
+import os
 import logging
 import socket
 import time
@@ -11,23 +12,32 @@ from lib.core.config import Config
 
 log = logging.getLogger(__name__)
 
-BUFSIZE = 1024*1024
+BUFSIZE = 1024 * 1024
 
-def upload_to_host(file_path, dump_path, pids=[], metadata="", category=""):
-    nc = infd = None
+
+def upload_to_host(file_path, dump_path, pids=[], metadata="", category="", duplicated=False):
+    nc = None
+    infd = None
+    we_open = False
+    if not os.path.exists(file_path):
+        log.warning("File {} doesn't exist anymore".format(file_path))
+        return
     try:
         nc = NetlogFile()
-        #nc = NetlogBinary(file_path.encode("utf-8", "replace"), dump_path, duplicate)
-        nc.init(dump_path, file_path, pids, metadata, category)
-        infd = open(file_path, "rb") #rb
-        buf = infd.read(BUFSIZE)
-        while buf:
-            nc.send(buf, retry=True)
+        # nc = NetlogBinary(file_path.encode("utf-8", "replace"), dump_path, duplicate)
+        nc.init(dump_path, file_path, pids, metadata, category, duplicated)
+        if not duplicated:
+            if not infd and file_path:
+                infd = open(file_path, "rb")  # rb
+                we_open = True
             buf = infd.read(BUFSIZE)
+            while buf:
+                nc.send(buf, retry=True)
+                buf = infd.read(BUFSIZE)
     except Exception as e:
         log.error("Exception uploading file {0} to host: {1}".format(file_path, e), exc_info=True)
     finally:
-        if infd:
+        if infd and we_open:
             infd.close()
         if nc:
             nc.close()
@@ -84,6 +94,7 @@ class NetlogConnection(object):
             print(e)
             pass
 
+
 class NetlogBinary(NetlogConnection):
     def __init__(self, guest_path, uploaded_path, duplicated):
         if duplicated:
@@ -94,7 +105,7 @@ class NetlogBinary(NetlogConnection):
 
 
 class NetlogFile(NetlogConnection):
-    def init(self, dump_path, filepath=False, pids="", metadata="", category="files"):
+    def init(self, dump_path, filepath=False, pids="", metadata="", category="files", duplicated=0):
         """
             All arguments should be strings
         """
@@ -103,16 +114,18 @@ class NetlogFile(NetlogConnection):
         else:
             pids = ""
         if filepath:
-            self.proto = b"FILE 2\n%s\n%s\n%s\n%s\n%s\n" % (
+            self.proto = b"FILE 2\n%s\n%s\n%s\n%s\n%s\n%d\n" % (
                 dump_path.encode("utf8"),
                 filepath.encode("utf-8", "replace"),
                 pids.encode("utf8") if isinstance(pids, str) else pids,
                 metadata.encode("utf8") if isinstance(metadata, str) else metadata,
                 category.encode("utf8") if isinstance(category, str) else category,
+                1 if duplicated else 0,
             )
         else:
-           self.proto = b"FILE\n%s\n" % dump_path.encode("utf8")
+            self.proto = b"FILE\n%s\n" % dump_path.encode("utf8")
         self.connect()
+
 
 class NetlogHandler(logging.Handler, NetlogConnection):
     def __init__(self):
@@ -122,4 +135,4 @@ class NetlogHandler(logging.Handler, NetlogConnection):
 
     def emit(self, record):
         msg = self.format(record)
-        self.send(msg.encode("utf-8")+b"\n")
+        self.send(msg.encode("utf-8") + b"\n")

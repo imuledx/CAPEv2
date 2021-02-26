@@ -8,6 +8,7 @@ import shutil
 from subprocess import call
 from lib.common.abstracts import Package
 
+
 class Exe(Package):
     """EXE analysis package."""
 
@@ -27,8 +28,10 @@ class Exe(Package):
 
         if appdata:
             # run the executable from the APPDATA directory, required for some malware
-            basepath = os.getenv('APPDATA')
+            basepath = os.getenv("APPDATA")
             newpath = os.path.join(basepath, os.path.basename(path))
+            if os.path.exists(new_path):
+                os.remove(new_path)
             shutil.copy(path, newpath)
             path = newpath
         if runasx86:

@@ -10,11 +10,12 @@ from lib.common.abstracts import Package
 
 class XLS(Package):
     """Excel analysis package."""
+
     def __init__(self, options={}, config=None):
         self.config = config
         self.options = options
-        self.options["loader"] = "loader.exe"
-        self.options["loader_64"] = "loader_x64.exe"
+        self.options["exclude-apis"] = "memcpy"
+        self.options["office"] = "1"
 
     PATHS = [
         ("ProgramFiles", "Microsoft Office", "EXCEL.EXE"),
@@ -29,4 +30,4 @@ class XLS(Package):
             path = new_path
 
         excel = self.get_path_glob("Microsoft Office Excel")
-        return self.execute(excel, "\"%s\" /e" % path, path)
+        return self.execute(excel, '"%s" /dde' % path, path)

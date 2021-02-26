@@ -1,18 +1,70 @@
-========
-REST API
-========
+===================
+Current REST API v2
+===================
 
-As mentioned in :doc:`submit`, Cuckoo provides a simple and lightweight REST
+To see current REST api see ``/apiv2/`` you will find all endpoints and details how to do requests
+
+`api example`: https://capesandbox.com/apiv2/
+
+To enable it, we use django-rest-framework::
+
+    $ pip3 install djangorestframework
+
+.. _`django-rest-framework`: https://www.django-rest-framework.org
+
+To generate user autorization token:
+
+.. code-block:: python
+
+    # By hand
+    python3 manage.py drf_create_token <your_user>
+
+    # Auto generation
+    curl -d "username=<USER>&password=<PASSWD>" http://127.0.0.1:8000/apiv2/api-token-auth/
+
+    # Usage
+    import requests
+
+    url = 'http://127.0.0.1:8000/apiv2/<ENDPOINT>'
+    headers = {'Authorization': 'Token <YOUR_TOKEN>'}
+    r = requests.get(url, headers=headers)
+
+===========
+REST API v1
+===========
+
+To see current REST api see ``/api/`` you will find all endpoints and details how to do requests
+
+
+`api example`: https://capesandbox.com/api/
+
+To enable auth on this api you can use htpasswd::
+
+    $ apt install htpasswd
+
+.. _`htpasswd`: https://httpd.apache.org/docs/2.4/programs/htpasswd.html
+
+Once you have enabled it, you can just specify ``username`` and ``password`` as ``GET/POST`` parameters, and you will have unlimited api on limited for the rest
+
+.. code-block:: python
+
+    # Simple example of authentificated api usage, just include username and password in each request
+    import requests
+    requests.get(URL, params={"username":"<your_username>", "password": "<your apikey>"})
+    requests.get(URL, data={"username":"<your_username>", "password": "<your apikey>"})
+
+
+==============================================================
+REST API deprecated, used only by dist.py aka distributed CAPE
+==============================================================
+
+As mentioned in :doc:`submit`, CAPE provides a simple and lightweight REST
 API server implemented in `Bottle.py`_, therefore in order to make the service
 work you'll need it installed. Bottle release must be 0.10 or above.
 
-On Debian/Ubuntu::
-
-    $ sudo apt-get install python-bottle
-
 With Pip::
 
-    $ pip install bottle
+    $ pip3 install bottle
 
 .. _`Bottle.py`: http://www.bottlepy.org
 
@@ -78,24 +130,24 @@ Following is a list of currently available resources and a brief description of 
         **Example request**::
 
             curl -F file=@/path/to/file http://localhost:8090/tasks/create/file
-            
+
         **Example request using Python**::
 
             import requests
             import json
-            
+
             REST_URL = "http://localhost:8090/tasks/create/file"
             SAMPLE_FILE = "/path/to/malwr.exe"
 
             with open(SAMPLE_FILE, "rb") as sample:
                 multipart_file = {"file": ("temp_file_name", sample)}
                 request = requests.post(REST_URL, files=multipart_file)
-            
+
             # Add your code to error checking for request.status_code.
-            
+
             json_decoder = json.JSONDecoder()
             task_id = json_decoder.decode(request.text)["task_id"]
-            
+
             # Add your code for error checking if task_id is None.
 
         **Example response**::
@@ -133,25 +185,25 @@ Following is a list of currently available resources and a brief description of 
         **Example request**::
 
             curl -F url="http://www.malicious.site" http://localhost:8090/tasks/create/url
-        
+
         **Example request using Python**::
 
             import requests
             import json
-            
+
             REST_URL = "http://localhost:8090/tasks/create/url"
             SAMPLE_URL = "http://example.org/malwr.exe"
-            
+
             multipart_url = {"url": ("", SAMPLE_URL)}
             request = requests.post(REST_URL, files=multipart_url)
-            
+
             # Add your code to error checking for request.status_code.
-            
+
             json_decoder = json.JSONDecoder()
             task_id = json_decoder.decode(request.text)["task_id"]
-            
+
             # Add your code toerror checking if task_id is None.
-            
+
         **Example response**::
 
             {

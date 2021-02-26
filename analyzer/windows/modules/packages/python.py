@@ -5,11 +5,13 @@
 from __future__ import absolute_import
 from lib.common.abstracts import Package
 
+
 class Python(Package):
     """Python analysis package."""
 
     PATHS = [
         ("HomeDrive", "Python*", "python.exe"),
+        ("SYSTEMROOT", "py.exe")
     ]
 
     def start(self, path):

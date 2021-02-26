@@ -7,12 +7,15 @@ import os
 
 from lib.common.abstracts import Package
 
+
 class DOC2016(Package):
     """Word analysis package."""
 
     def __init__(self, options={}, config=None):
         self.config = config
         self.options = options
+        self.options["exclude-apis"] = "memcpy"
+        self.options["office"] = "1"
 
     PATHS = [
         ("ProgramFiles", "Microsoft Office*", "root", "Office16", "WINWORD.EXE"),
@@ -25,4 +28,4 @@ class DOC2016(Package):
             os.rename(path, new_path)
             path = new_path
 
-        return self.execute(word, "\"%s\" /q" % path, path)
+        return self.execute(word, '"%s" /q /dde /n' % path, path)

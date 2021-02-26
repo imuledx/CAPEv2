@@ -8,7 +8,7 @@ import codecs
 import base64
 import PIL
 from PIL import Image
-from io import StringIO
+from io import BytesIO
 
 from lib.cuckoo.common.abstracts import Report
 from lib.cuckoo.common.constants import CUCKOO_ROOT
@@ -19,9 +19,11 @@ try:
     from jinja2.environment import Environment
     from jinja2.loaders import FileSystemLoader
     from jinja2 import UndefinedError, TemplateNotFound, TemplateSyntaxError, TemplateAssertionError
+
     HAVE_JINJA2 = True
 except ImportError:
     HAVE_JINJA2 = False
+
 
 class ReportHTMLSummary(Report):
     """Stores summary report in HTML format."""
@@ -32,8 +34,7 @@ class ReportHTMLSummary(Report):
         @raise CuckooReportError: if fails to write report.
         """
         if not HAVE_JINJA2:
-            raise CuckooReportError("Failed to generate summary HTML report: "
-                                    "Jinja2 Python library is not installed")
+            raise CuckooReportError("Failed to generate summary HTML report: " "Jinja2 Python library is not installed")
 
         shots_path = os.path.join(self.analysis_path, "shots")
         if os.path.exists(shots_path):
@@ -48,19 +49,20 @@ class ReportHTMLSummary(Report):
                 if os.path.getsize(shot_path) == 0:
                     continue
 
-                output = StringIO()
+                output = BytesIO()
 
                 # resize the image to thumbnail size, as weasyprint can't handle resizing
                 try:
                     img = Image.open(shot_path)
                     img = img.resize((150, 100), PIL.Image.ANTIALIAS)
                     img.save(output, format="JPEG")
-                except:
+                except Exception as e:
+                    # print(e)
                     pass
 
                 shot = {}
                 shot["id"] = os.path.splitext(File(shot_path).get_name())[0]
-                shot["data"] = base64.b64encode(output.getvalue())
+                shot["data"] = base64.b64encode(output.getvalue()).decode("utf-8")
                 shots.append(shot)
                 output.close()
 
@@ -72,8 +74,7 @@ class ReportHTMLSummary(Report):
             results["shots"] = []
 
         env = Environment(autoescape=True)
-        env.loader = FileSystemLoader(os.path.join(CUCKOO_ROOT,
-                                                   "data", "html"))
+        env.loader = FileSystemLoader(os.path.join(CUCKOO_ROOT, "data", "html"))
         try:
             tpl = env.get_template("report.html")
             html = tpl.render({"results": results, "summary_report": True})
@@ -82,8 +83,7 @@ class ReportHTMLSummary(Report):
         except TemplateNotFound as e:
             raise CuckooReportError("Failed to generate summary HTML report: {} {} ".format(e, e.name))
         except (TemplateSyntaxError, TemplateAssertionError) as e:
-            raise CuckooReportError("Failed to generate summary HTML report: {} on {}, line {} ".format(e, e.name,
-                                                                                                        e.lineno))
+            raise CuckooReportError("Failed to generate summary HTML report: {} on {}, line {} ".format(e, e.name, e.lineno))
         try:
             with codecs.open(os.path.join(self.reports_path, "summary-report.html"), "w", encoding="utf-8") as report:
                 report.write(html)
@@ -91,4 +91,3 @@ class ReportHTMLSummary(Report):
             raise CuckooReportError("Failed to write summary HTML report: %s" % e)
 
         return True
-

@@ -3,7 +3,7 @@
 Usage
 =====
 
-This chapter explains how to use Cuckoo.
+This chapter explains how to use CAPE.
 
 .. toctree::
 
@@ -15,5 +15,6 @@ This chapter explains how to use Cuckoo.
     packages
     results
     clean
-    utilities
+    utilities - processing generated data by Virtual Machine(s)
     performance
+    monitor

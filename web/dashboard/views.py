@@ -16,29 +16,26 @@ from lib.cuckoo.core.database import Database, TASK_PENDING, TASK_RUNNING, TASK_
 from lib.cuckoo.core.database import TASK_COMPLETED, TASK_RECOVERED
 from lib.cuckoo.core.database import TASK_REPORTED, TASK_FAILED_ANALYSIS
 from lib.cuckoo.core.database import TASK_FAILED_PROCESSING, TASK_FAILED_REPORTING
+from lib.cuckoo.common.web_utils import top_detections
 
 # Conditional decorator for web authentication
 class conditional_login_required(object):
     def __init__(self, dec, condition):
         self.decorator = dec
         self.condition = condition
+
     def __call__(self, func):
         if not self.condition:
             return func
         return self.decorator(func)
+
 
 @require_safe
 @conditional_login_required(login_required, settings.WEB_AUTHENTICATION)
 def index(request):
     db = Database()
 
-    report = dict(
-        total_samples=db.count_samples(),
-        total_tasks=db.count_tasks(),
-        states_count={},
-        estimate_hour=None,
-        estimate_day=None
-    )
+    report = dict(total_samples=db.count_samples(), total_tasks=db.count_tasks(), states_count={}, estimate_hour=None, estimate_day=None)
 
     states = (
         TASK_PENDING,
@@ -49,7 +46,7 @@ def index(request):
         TASK_REPORTED,
         TASK_FAILED_ANALYSIS,
         TASK_FAILED_PROCESSING,
-        TASK_FAILED_REPORTING
+        TASK_FAILED_REPORTING,
     )
 
     for state in states:
@@ -72,5 +69,6 @@ def index(request):
 
         report["estimate_hour"] = int(hourly)
         report["estimate_day"] = int(24 * hourly)
+        report["top_detections"] = top_detections()
 
     return render(request, "dashboard/index.html", {"report": report})

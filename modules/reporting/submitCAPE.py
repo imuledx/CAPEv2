@@ -37,266 +37,132 @@ reporting_conf = Config("reporting")
 distributed = reporting_conf.submitCAPE.distributed
 report_key = reporting_conf.submitCAPE.keyword
 
+NUMBER_OF_DEBUG_REGISTERS = 4
+bp = 0
+
 cape_package_list = [
-    "Combo", "Combo_dll", "Compression", "Compression_dll", "Compression_doc", "Compression_zip", "Compression_js", "Compression_pdf",
-    "Debugger", "Debugger_dll", "Debugger_doc", "DumpOnAPI", "Doppelganging", "Emotet", "Emotet_doc", "EvilGrab", "Extraction", "Extraction_dll",
-    "Extraction_regsvr", "Extraction_zip", "Extraction_ps1", "Extraction_jar", "Extraction_pdf", "Extraction_js",
-    "Hancitor", "Hancitor_dll", "Hancitor_doc", "IcedID", "Injection", "Injection_dll", "Injection_doc", "Injection_pdf", "Injection_zip",
-    "Injection_ps1", "Injection_js", "PlugX", "PlugXPayload", "PlugX_dll", "PlugX_doc", "PlugX_zip", "QakBot", "RegBinary",
-    "Sedreco", "Sedreco_dll", "Shellcode-Extraction", "TrickBot", "TrickBot_doc", "UPX", "UPX_dll", "Ursnif"
+    "Emotet",
+    "Emotet_doc",
+    "Unpacker",
+    "Unpacker_dll",
+    "Unpacker_regsvr",
+    "Unpacker_zip",
+    "Unpacker_ps1",
+    "Unpacker_js",
+    "Hancitor",
+    "Hancitor_dll",
+    "Hancitor_doc",
+    "PlugX",
+    "PlugXPayload",
+    "PlugX_dll",
+    "PlugX_doc",
+    "PlugX_zip",
+    "RegBinary",
+    "Shellcode-Extraction",
+    "TrickBot",
+    "TrickBot_doc",
+    "UPX",
+    "UPX_dll",
 ]
 
-injections = {
-    'doc': 'Injection_doc',
-    'dll': 'Injection_dll',
-    'regsvr': 'Injection_dll',
-    'zip': 'Injection_zip',
-    'pdf': 'Injection_pdf',
-    'js': 'Injection_js',
-    'exe': 'Injection'
-}
-
-extractions = {
-    'ps1': 'Extraction_ps1',
-    'dll': 'Extraction_dll',
-    'regsvr': 'Extraction_regsvr',
-    'zip': 'Extraction_zip',
-    'pdf': 'Extraction_pdf',
-    'jar': 'Extraction_jar',
-    'js': 'Extraction_js',
-    'exe': 'Extraction',
-}
-
-compressions = {
-    'doc': 'Compression_doc',
-    'dll': 'Compression_dll',
-    'regsvr': 'Compression_dll',
-    'zip': 'Compression_zip',
-    'pdf': 'Compression_pdf',
-    'js': 'Compression_js',
-    'exe': 'Compression',
+unpackers = {
+    "ps1": "Unpacker_ps1",
+    "dll": "Unpacker_dll",
+    "regsvr": "Unpacker_regsvr",
+    "zip": "Unpacker_zip",
+    "js": "Unpacker_js",
+    "exe": "Unpacker",
 }
 
 plugx = {
-    'PlugXPayload': 'PlugXPayload',
-    'zip': 'PlugX_zip',
-    'doc': 'PlugX_doc',
-    'dll': 'PlugX_dll',
-    'exe': 'PlugX',
+    "PlugXPayload": "PlugXPayload",
+    "zip": "PlugX_zip",
+    "doc": "PlugX_doc",
+    "dll": "PlugX_dll",
+    "exe": "PlugX",
 }
+
 
 class SubmitCAPE(Report):
     def process_cape_yara(self, cape_yara, results, detections):
-
-        if 'disable_cape=1' in self.task_options:
-            return
+        global bp
 
         if "cape_options" in cape_yara["meta"]:
-            self.task_options = self.task_options + ',disable_cape=1,file-offsets=1,' + cape_yara["meta"]["cape_options"]
-
-            yara_options = cape_yara["meta"]["cape_options"].split(',')
+            cape_options = cape_yara["meta"]["cape_options"].split(",")
 
             address = 0
-            for option in yara_options:
-                name, value = option.split('=')
-                if value.startswith('$'):
-                    address = cape_yara["addresses"].get(value.strip('$'))
-                    if address:
-                        self.task_options = self.task_options.replace(value, str(address), 1)
+            new_options = ""
+            suffix = ""
+            for option in cape_options:
+                name, value = option.split("=")
+                if name in ("bp0", "br0", 0):
+                    bp = 1
+                elif name in ("bp1", "br1", 1):
+                    bp = 2
+                elif name in ("bp2", "br2", 2):
+                    bp = 3
+                elif name in ("bp3", "br3", 3):
+                    bp = 4
+                elif bp == NUMBER_OF_DEBUG_REGISTERS:
+                    break
+                elif name in ("bp", "br") and value.startswith("$"):
+                    for hit in cape_yara["addresses"]:
+                        pattern = False
+                        if "-" in value:
+                            pattern = "-"
+                        elif "+" in value:
+                            pattern = "+"
+
+                        if pattern:
+                            suffix = pattern + value.split(pattern)[1]
+                            value = value.split(pattern)[0]
+
+                        if value.strip("$") in hit and str(cape_yara["addresses"][hit]) not in self.task_options:
+                            address = cape_yara["addresses"][hit]
+                            option = "{0}{1}={2}{3}".format(name, bp, address, suffix)
+                            bp = bp + 1
+                if option not in self.task_options:
+                    if new_options == "":
+                        new_options = option
+                    else:
+                        new_options = new_options + "," + option
 
             if not address:
                 return
 
-            if 'procdump=1' in self.task_options:
+            if "procdump=1" in self.task_options:
                 self.task_options = self.task_options.replace(u"procdump=1", u"procdump=0", 1)
 
-            parent_id = int(results["info"]["id"])
-            if results.get("info", {}).get("options", {}).get("main_task_id", ""):
-                parent_id = int(results.get("info", {}).get("options", {}).get("main_task_id", ""))
+            if "extraction=1" in self.task_options:
+                self.task_options = self.task_options.replace(u"extraction=1", u"extraction=0", 1)
 
-            self.task_custom = "Parent_Task_ID:%s" % results["info"]["id"]
-            if results.get("info", {}).get("custom"):
-                self.task_custom = "%s Parent_Custom:%s" % (self.task_custom, results["info"]["custom"])
+            if "combo=1" in self.task_options:
+                self.task_options = self.task_options.replace(u"combo=1", u"combo=0", 1)
 
-            if self.task["package"] in ('Compression', 'Extraction', 'Injection'):
-                self.task["package"] = 'exe'
+            if "file-offsets" in self.task_options:
+                self.task_options = self.task_options.replace(u"file-offsets=0", u"file-offsets=0", 1)
+            else:
+                self.task_options = self.task_options + ",file-offsets=1"
 
-            task_id = self.submit_task(
-                self.task["target"],
-                self.task["package"],
-                self.task["timeout"],
-                self.task_options,
-                self.task["priority"]+1,   # increase priority to expedite related submission
-                self.task["machine"],
-                self.task["platform"],
-                self.task["memory"],
-                self.task["enforce_timeout"],
-                None,
-                None,
-                parent_id,
-            )
-            if task_id:
-                children = []
-                children.append([task_id, self.task["package"]])
-                results["CAPE_children"] = children
+            log.info("options = %s", new_options)
+            self.task_options = self.task_options + "," + new_options
+            if "auto=" not in self.task_options:
+                self.task_options = self.task_options + ",auto=1"
 
             return
 
-        if cape_yara["name"] == "Sedreco" and 'Sedreco' not in detections:
-            encrypt1 = cape_yara["addresses"].get("encrypt1")
-            encrypt2 = cape_yara["addresses"].get("encrypt2")
-            encrypt64_1 = cape_yara["addresses"].get("encrypt64_1")
-            if encrypt1:
-                self.task_options_stack.append(
-                    "CAPE_var1={0}".format(encrypt1))
-            if encrypt2:
-                self.task_options_stack.append(
-                    "CAPE_var2={0}".format(encrypt2))
-            if encrypt64_1:
-                self.task_options_stack.append(
-                    "CAPE_var3={0}".format(encrypt64_1))
-            detections.add('Sedreco')
-
-        if cape_yara["name"] == "Cerber":
-            detections.add('Cerber')
-
-        if cape_yara["name"] == "Ursnif":
-            decrypt_config64 = cape_yara["addresses"].get("decrypt_config64")
-            decrypt_config32 = cape_yara["addresses"].get("decrypt_config32")
-            if decrypt_config64:
-                for item in self.task_options_stack:
-                    if 'bp0' in item:
-                        self.task_options_stack.remove(item)
-                self.task_options_stack.append(
-                    "bp0={0}".format(decrypt_config64))
-                detections.add('Ursnif')
-            elif decrypt_config32:
-                if not any('bp0' in s for s in self.task_options_stack):
-                    self.task_options_stack.append(
-                        "bp0={0}".format(decrypt_config32))
-                    detections.add('Ursnif')
-
-            crypto64_1 = cape_yara["addresses"].get("crypto64_1")
-            crypto32_1 = cape_yara["addresses"].get("crypto32_1")
-            if crypto64_1:
-                for item in self.task_options_stack:
-                    if 'bp1' in item:
-                        self.task_options_stack.remove(item)
-                ret_address = int(crypto64_1)
-                self.task_options_stack.append(
-                    "bp1={0}".format(str(ret_address)))
-                detections.add('Ursnif')
-            elif crypto32_1:
-                if not any('bp1' in s for s in self.task_options_stack):
-                    ret_address = int(crypto32_1)
-                    self.task_options_stack.append(
-                        "bp1={0}".format(str(ret_address)))
-                    detections.add('Ursnif')
-
-            crypto64_2 = cape_yara["addresses"].get("crypto64_2")
-            crypto32_2 = cape_yara["addresses"].get("crypto32_2")
-            if crypto64_2:
-                for item in self.task_options_stack:
-                    if 'bp1' in item:
-                        self.task_options_stack.remove(item)
-                ret_address = int(crypto64_2)
-                self.task_options_stack.append(
-                    "bp1={0}".format(str(ret_address)))
-                detections.add('Ursnif')
-            elif crypto32_2:
-                if not any('bp1' in s for s in self.task_options_stack):
-                    ret_address = int(crypto32_2)
-                    self.task_options_stack.append(
-                        "bp1={0}".format(str(ret_address)))
-                    detections.add('Ursnif')
-
-            crypto64_3 = cape_yara["addresses"].get("crypto64_3")
-            crypto32_3 = cape_yara["addresses"].get("crypto32_3")
-            if crypto64_3:
-                for item in self.task_options_stack:
-                    if 'bp1' in item:
-                        self.task_options_stack.remove(item)
-                ret_address = int(crypto64_3)
-                self.task_options_stack.append(
-                    "bp1={0}".format(str(ret_address)))
-                detections.add('Ursnif')
-            elif crypto32_3:
-                if not any('bp1' in s for s in self.task_options_stack):
-                    ret_address = int(crypto32_3)
-                    self.task_options_stack.append(
-                        "bp1={0}".format(str(ret_address)))
-                    detections.add('Ursnif')
-
-            crypto64_4 = cape_yara["addresses"].get("crypto64_4")
-            crypto32_4 = cape_yara["addresses"].get("crypto32_4")
-            if crypto64_4:
-                for item in self.task_options_stack:
-                    if 'bp1' in item:
-                        self.task_options_stack.remove(item)
-                ret_address = int(crypto64_4)
-                self.task_options_stack.append(
-                    "bp1={0}".format(str(ret_address)))
-                detections.add('Ursnif')
-            elif crypto32_4:
-                if not any('bp1' in s for s in self.task_options_stack):
-                    ret_address = int(crypto32_4)
-                    self.task_options_stack.append(
-                        "bp1={0}".format(str(ret_address)))
-                    detections.add('Ursnif')
+        if "disable_cape=1" in self.task_options:
+            return
 
         if cape_yara["name"] == "TrickBot":
-            detections.add('TrickBot')
+            detections.add("TrickBot")
 
         if cape_yara["name"] == "Hancitor":
-            detections.add('Hancitor')
+            detections.add("Hancitor")
 
-        if cape_yara["name"] == "QakBot":
-            anti_sandbox = cape_yara["addresses"].get("anti_sandbox")
-            if anti_sandbox:
-                anti_sandbox = anti_sandbox + 19  # Offset of "JLE" instruction from Yara hit
-                for item in self.task_options_stack:
-                    if 'bp0' in item:
-                        self.task_options_stack.remove(item)
-                self.task_options_stack.append("bp0={0}".format(anti_sandbox))
-            decrypt_config = cape_yara["addresses"].get("decrypt_config1")
-            if decrypt_config:
-                decrypt_config = decrypt_config +  16  # Offset of "CALL" (decrypt)
-                duplicate = False
-                bp1_set = False
-                bp2_set = False
-                for item in self.task_options_stack:
-                    if format(decrypt_config) in item:
-                        duplicate = True
-                    if 'bp1' in item:
-                            bp1_set = True
-                    if 'bp2' in item:
-                        bp2_set = True
-                if not duplicate and not bp1_set:
-                    self.task_options_stack.append("bp1={0}".format(decrypt_config))
-                elif not duplicate and not bp2_set:
-                    self.task_options_stack.append("bp2={0}".format(decrypt_config))
-                    detections.add('QakBot')
-            decrypt_config = cape_yara["addresses"].get("decrypt_config2")
-            if decrypt_config:
-                decrypt_config = decrypt_config +  30  # Offset of "CALL" (decrypt)
-                for item in self.task_options_stack:
-                    if 'bp1' in item:
-                            bp1_set = True
-                    if 'bp2' in item:
-                        bp2_set = True
-                if not duplicate and not bp1_set:
-                    self.task_options_stack.append("bp1={0}".format(decrypt_config))
-                elif not duplicate and not bp2_set:
-                    self.task_options_stack.append("bp2={0}".format(decrypt_config))
-                    detections.add('QakBot')
-
-        if cape_yara["name"] == "IcedID":
-            detections.add('IcedID')
-
-        if cape_yara["name"] == "Emotet_Loader":
-            detections.add('Emotet')
-
-    def submit_task(self, target, package, timeout, task_options, priority, machine, platform, memory, enforce_timeout, clock, tags, parent_id):
+    def submit_task(
+        self, target, package, timeout, task_options, priority, machine, platform, memory, enforce_timeout, clock, tags, parent_id, tlp
+    ):
 
         db = Database()
 
@@ -308,7 +174,7 @@ class SubmitCAPE(Report):
                     "timeout": timeout,
                     "options": task_options,
                     "priority": priority,
-                    #"machine": machine,
+                    # "machine": machine,
                     "platform": platform,
                     "memory": memory,
                     "enforce_timeout": enforce_timeout,
@@ -316,11 +182,9 @@ class SubmitCAPE(Report):
                     "tags": tags,
                     "parent_id": parent_id,
                 }
-                multipart_file = [
-                    ("file", (os.path.basename(target), open(target, "rb")))]
+                multipart_file = [("file", (os.path.basename(target), open(target, "rb")))]
                 try:
-                    res = requests.post(
-                        reporting_conf.submitCAPE.url, files=multipart_file, data=options)
+                    res = requests.post(reporting_conf.submitCAPE.url, files=multipart_file, data=options)
                     if res and res.ok:
                         task_id = res.json()["data"]["task_ids"][0]
                 except Exception as e:
@@ -331,7 +195,7 @@ class SubmitCAPE(Report):
                     package=package,
                     timeout=timeout,
                     options=task_options,
-                    priority=priority,   # increase priority to expedite related submission
+                    priority=priority,  # increase priority to expedite related submission
                     machine=machine,
                     platform=platform,
                     memory=memory,
@@ -339,14 +203,13 @@ class SubmitCAPE(Report):
                     clock=None,
                     tags=None,
                     parent_id=parent_id,
+                    tlp=tlp,
                 )
             if task_id:
-                log.info(
-                    u"CAPE detection on file \"{0}\": {1} - added as CAPE task with ID {2}".format(target, package, task_id))
+                log.info(u'CAPE detection on file "{0}": {1} - added as CAPE task with ID {2}'.format(target, package, task_id))
                 return task_id
             else:
-                log.warn(
-                    "Error adding CAPE task to database: {0}".format(package))
+                log.warn("Error adding CAPE task to database: {0}".format(package))
         else:
             log.info("File doesn't exists")
 
@@ -356,6 +219,7 @@ class SubmitCAPE(Report):
         self.task_custom = None
         detections = set()
         children = []
+        bp = 0
 
         # allow ban unittests
         filename = results.get("target", {}).get("file", {}).get("name", "")
@@ -375,6 +239,15 @@ class SubmitCAPE(Report):
         if not self.task_options:
             return
 
+        if "auto" in self.task_options:
+            return
+
+        # We want to suppress spawned jobs if a config
+        # has already been extracted
+        for entry in results.get("CAPE", []):
+            if isinstance(entry, dict) and entry.get("cape_config"):
+                return
+
         parent_package = results["info"].get("package")
 
         # Initial static hits from CAPE's yara signatures
@@ -386,32 +259,55 @@ class SubmitCAPE(Report):
                 if "cape_yara" in file:
                     for entry in file["cape_yara"]:
                         self.process_cape_yara(entry, results, detections)
-        if 'disable_cape=1' in self.task_options:
+
+        if "auto=1" in self.task_options:
+            if parent_package and parent_package in unpackers.values():
+                return
+
+            parent_id = int(results["info"]["id"])
+            if results.get("info", {}).get("options", {}).get("main_task_id", ""):
+                parent_id = int(results.get("info", {}).get("options", {}).get("main_task_id", ""))
+
+            self.task_custom = "Parent_Task_ID:%s" % results["info"]["id"]
+            if results.get("info", {}).get("custom"):
+                self.task_custom = "%s Parent_Custom:%s" % (self.task_custom, results["info"]["custom"])
+
+            log.debug("submit_task options: %s", self.task_options)
+            task_id = self.submit_task(
+                self.task["target"],
+                self.task["package"],
+                self.task["timeout"],
+                self.task_options,
+                self.task["priority"] + 1,  # increase priority to expedite related submission
+                self.task["machine"],
+                self.task["platform"],
+                self.task["memory"],
+                self.task["enforce_timeout"],
+                None,
+                None,
+                parent_id,
+                self.task["tlp"],
+            )
+            if task_id:
+                children = []
+                children.append([task_id, self.task["package"]])
+                results["CAPE_children"] = children
+
             return
 
-        # Dynamic CAPE hits
-        # Packers, injection or other generic dumping
+        if "disable_cape=1" in self.task_options:
+            return
+
+        # Dynamic CAPE hits from packers
         if "signatures" in results:
             for entry in results["signatures"]:
                 if parent_package:
-                    if entry["name"] in ("InjectionCreateRemoteThread", "InjectionProcessHollowing", "InjectionSetWindowLong", "InjectionInterProcess"):
-                        if parent_package in injections:
-                            detections.add(injections[parent_package])
+                    if entry["name"] == "Unpacker":
+                        if parent_package == "doc":
                             continue
 
-                    elif entry["name"] == "Extraction":
-                        if parent_package == 'doc':
-                            # detections.add('Extraction_doc')
-                            # Word triggers this so removed
-                            continue
-
-                        if parent_package in extractions:
-                            detections.add(extractions[parent_package])
-                            continue
-
-                    elif entry["name"] == "Compression":
-                        if parent_package in compressions:
-                            detections.add(compressions[parent_package])
+                        if parent_package in unpackers:
+                            detections.add(unpackers[parent_package])
                             continue
 
                     # Specific malware family packages
@@ -420,63 +316,29 @@ class SubmitCAPE(Report):
                         package = plugx[parent_package]
                         continue
 
-                    elif parent_package == 'exe':
-                        if entry["name"] == "Doppelganging":
-                            detections.add('Doppelganging')
+        elif "TrickBot" in detections:
+            if parent_package == "doc":
+                package = "TrickBot_doc"
+            elif parent_package == "exe":
+                package = "TrickBot"
 
-                        elif entry["name"] == "EvilGrab":
-                            detections.add('EvilGrab')
-                            package = 'EvilGrab'
-
-        if 'Sedreco' in detections:
-            if parent_package == 'dll':
-                package = 'Sedreco_dll'
-            elif parent_package == 'exe':
-                package = 'Sedreco'
-
-        elif 'TrickBot' in detections:
-            if parent_package == 'doc':
-                package = 'TrickBot_doc'
-            elif parent_package == 'exe':
-                package = 'TrickBot'
-
-        elif 'Ursnif' in detections:
-            if parent_package in ('doc', 'Injection_doc'):
-                package = 'Ursnif_doc'
-            elif parent_package in ('exe', 'Injection'):
-                package = 'Ursnif'
-
-        elif 'Hancitor' in detections:
-            if parent_package in ('doc', 'Injection_doc'):
-                package = 'Hancitor_doc'
-            elif parent_package in ('exe', 'Injection', 'Compression'):
-                package = 'Hancitor'
-            elif parent_package in ('dll', 'Injection_dll', 'Compression_dll'):
-                package = 'Hancitor_dll'
+        elif "Hancitor" in detections:
+            if parent_package in ("doc"):
+                package = "Hancitor_doc"
+            elif parent_package in ("exe"):
+                package = "Hancitor"
+            elif parent_package in ("dll"):
+                package = "Hancitor_dll"
 
         # if 'RegBinary' in detections or 'CreatesLargeKey' in detections:
-        elif 'RegBinary' in detections:
-            package = 'RegBinary'
-
-        elif 'Emotet' in detections:
-            if parent_package == 'doc':
-                package = 'Emotet_doc'
-            elif parent_package in ('exe', 'Extraction'):
-                package = 'Emotet'
-
-        elif parent_package == 'exe' or parent_package == 'Extraction':
-            if 'QakBot' in detections:
-                package = 'QakBot'
-
-            if 'IcedID' in detections:
-                package = 'IcedID'
+        elif "RegBinary" in detections:
+            package = "RegBinary"
 
         # we want to switch off automatic process dumps in CAPE submissions
-        if self.task_options and 'procdump=1' in self.task_options:
-            self.task_options = self.task_options.replace(
-                u"procdump=1", u"procdump=0", 1)
+        if self.task_options and "procdump=1" in self.task_options:
+            self.task_options = self.task_options.replace(u"procdump=1", u"procdump=0", 1)
         if self.task_options_stack:
-            self.task_options = ','.join(self.task_options_stack)
+            self.task_options = ",".join(self.task_options_stack)
 
         parent_id = int(results["info"]["id"])
         if results.get("info", {}).get("options", {}).get("main_task_id", ""):
@@ -485,8 +347,7 @@ class SubmitCAPE(Report):
         if package and package != parent_package:
             self.task_custom = "Parent_Task_ID:%s" % results["info"]["id"]
             if results.get("info", {}).get("custom"):
-                self.task_custom = "%s Parent_Custom:%s" % (
-                    self.task_custom, results["info"]["custom"])
+                self.task_custom = "%s Parent_Custom:%s" % (self.task_custom, results["info"]["custom"])
             task_id = self.submit_task(
                 self.task["target"],
                 package,
@@ -501,6 +362,7 @@ class SubmitCAPE(Report):
                 None,
                 None,
                 parent_id,
+                self.task["tlp"],
             )
             if task_id:
                 children.append([task_id, package])
@@ -511,8 +373,7 @@ class SubmitCAPE(Report):
 
             self.task_custom = "Parent_Task_ID:%s" % results["info"]["id"]
             if results.get("info", {}).get("custom"):
-                self.task_custom = "%s Parent_Custom:%s" % (
-                    self.task_custom, results["info"]["custom"])
+                self.task_custom = "%s Parent_Custom:%s" % (self.task_custom, results["info"]["custom"])
 
             for dumper in detections:
                 task_id = self.submit_task(
@@ -529,6 +390,7 @@ class SubmitCAPE(Report):
                     None,
                     None,
                     parent_id,
+                    self.task["tlp"],
                 )
                 if task_id:
                     children.append([task_id, dumper])

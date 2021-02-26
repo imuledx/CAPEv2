@@ -7,11 +7,14 @@ import os
 
 from lib.common.abstracts import Package
 
+
 class DOC(Package):
     """Word analysis package."""
+
     def __init__(self, options={}, config=None):
         self.config = config
         self.options = options
+        self.options["office"] = "1"
 
     PATHS = [
         ("ProgramFiles", "Microsoft Office", "WINWORD.EXE"),

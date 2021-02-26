@@ -22,11 +22,11 @@
         {% for signature in analysis.signatures %}
             <a style="text-decoration: none;" href="#signature_{{signature.name}}" data-toggle="collapse">
             {% if signature.severity <= 1 %}
-                <div class="alert alert-info signature">
+                <div class="alert alert-info signature" style="color:black">
             {% elif signature.severity == 2 %}
-                <div class="alert alert-warning signature">
+                <div class="alert alert-warning signature" style="color:black">
             {% elif signature.severity >= 3 %}
-                <div class="alert alert-danger signature">
+                <div class="alert alert-danger signature" style="color:black">
             {% endif %}
             {{signature.description}}</div></a>
             <div id="signature_{{signature.name}}" class="collapse">
@@ -49,7 +49,7 @@
                                         {% include "analysis/behavior/_api_call.html" with call=sign.value %}
                                         <td>
                                             <a href='#' class='call-link' data-pid='{{match.process.process_id}}' data-cid='{{sign.value.id}}'>
-                                                <span class="glyphicon glyphicon-circle-arrow-right"></span>
+                                                <span class="fa fa-arrow-circle-right"></span>
                                             </a>
                                         </td>
                                     {% else %}

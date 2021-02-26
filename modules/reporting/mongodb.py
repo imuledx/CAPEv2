@@ -19,14 +19,17 @@ try:
     from pymongo import MongoClient
     from bson.objectid import ObjectId
     from pymongo.errors import ConnectionFailure, InvalidDocument
+
     HAVE_MONGO = True
 except ImportError:
     HAVE_MONGO = False
 
 log = logging.getLogger(__name__)
 
+
 class MongoDB(Report):
     """Stores report in MongoDB."""
+
     order = 9999
 
     # Mongo schema version, used for data migration.
@@ -42,11 +45,7 @@ class MongoDB(Report):
 
         try:
             self.conn = MongoClient(
-                host,
-                port=port,
-                username=self.options.get("username", None),
-                password=self.options.get("password", None),
-                authSource=db
+                host, port=port, username=self.options.get("username", None), password=self.options.get("password", None), authSource=db
             )
             self.db = self.conn[db]
         except TypeError:
@@ -59,6 +58,7 @@ class MongoDB(Report):
             dct = dct[0]
 
         totals = dict((k, 0) for k in dct)
+
         def walk(root, key, val):
             if isinstance(val, dict):
                 for k, v in val.items():
@@ -97,11 +97,24 @@ class MongoDB(Report):
             # we do not want to convert that.
             if type(v) is str:
                 try:
-                    v.encode('utf-8')
+                    v.encode("utf-8")
                 except UnicodeEncodeError:
-                    obj[k] = ''.join(str(ord(_)) for _ in v).encode('utf-8')
+                    obj[k] = "".join(str(ord(_)) for _ in v).encode("utf-8")
             else:
                 cls.ensure_valid_utf8(v)
+
+    # use this function to hunt down non string key
+    def fix_int2str(self, dictionary, current_key_tree=""):
+        for k, v in dictionary.iteritems():
+            if not isinstance(k, str):
+                log.error("BAD KEY: {}".format(".".join([current_key_tree, str(k)])))
+                dictionary[str(k)] = dictionary.pop(k)
+            elif isinstance(v, dict):
+                self.fix_int2str(v, ".".join([current_key_tree, k]))
+            elif isinstance(v, list):
+                for d in v:
+                    if isinstance(d, dict):
+                        self.fix_int2str(d, ".".join([current_key_tree, k]))
 
     def run(self, results):
         """Writes report.
@@ -111,14 +124,12 @@ class MongoDB(Report):
         # We put the raise here and not at the import because it would
         # otherwise trigger even if the module is not enabled in the config.
         if not HAVE_MONGO:
-            raise CuckooDependencyError("Unable to import pymongo "
-                                        "(install with `pip3 install pymongo`)")
+            raise CuckooDependencyError("Unable to import pymongo " "(install with `pip3 install pymongo`)")
 
         self.connect()
 
         # Set mongo schema version.
-        # TODO: This is not optimal becuase it run each analysis. Need to run
-        # only one time at startup.
+        # TODO: This is not optimal because it run each analysis. Need to run only one time at startup.
         if "cuckoo_schema" in self.db.collection_names():
             if self.db.cuckoo_schema.find_one()["version"] != self.SCHEMA_VERSION:
                 CuckooReportError("Mongo schema version not expected, check data migration tool")
@@ -203,7 +214,7 @@ class MongoDB(Report):
         # Note: Silently ignores the creation if the index already exists.
         self.db.analysis.create_index("info.id", background=True)
 
-        #trick for distributed api
+        # trick for distributed api
         if results.get("info", {}).get("options", {}).get("main_task_id", ""):
             report["info"]["id"] = int(results["info"]["options"]["main_task_id"])
 
@@ -211,7 +222,7 @@ class MongoDB(Report):
         if analyses.count() > 0:
             log.debug("Deleting analysis data for Task %s" % report["info"]["id"])
             for analysis in analyses:
-                for process in analysis["behavior"]["processes"]:
+                for process in analysis["behavior"].get("processes", []) or []:
                     for call in process["calls"]:
                         self.db.calls.remove({"_id": ObjectId(call)})
                 self.db.analysis.remove({"_id": ObjectId(analysis["_id"])})
@@ -227,8 +238,8 @@ class MongoDB(Report):
             parent_key, psize = self.debug_dict_size(report)[0]
             if not self.options.get("fix_large_docs", False):
                 # Just log the error and problem keys
-                log.error(str(e))
-                log.error("Largest parent key: %s (%d MB)" % (parent_key, int(psize) / MEGABYTE))
+                #log.error(str(e))
+                log.warning("Largest parent key: %s (%d MB)" % (parent_key, int(psize) / MEGABYTE))
             else:
                 # Delete the problem keys and check for more
                 error_saved = True
@@ -252,10 +263,15 @@ class MongoDB(Report):
                             self.db.analysis.save(report, check_keys=False)
                             error_saved = False
                         except InvalidDocument as e:
-                            parent_key, psize = self.debug_dict_size(report)[0]
-                            log.error(str(e))
-                            log.error("Largest parent key: %s (%d MB)" % (parent_key, int(psize) / MEGABYTE))
-                            size_filter = size_filter - MEGABYTE
+                            if str(e).startswith("documents must have only string keys"):
+                                log.error("Search bug in your modifications - you got an dictionary key as int, should be string")
+                                log.error(str(e))
+                                return
+                            else:
+                                parent_key, psize = self.debug_dict_size(report)[0]
+                                log.error(str(e))
+                                log.warning("Largest parent key: %s (%d MB)" % (parent_key, int(psize) / MEGABYTE))
+                                size_filter = size_filter - MEGABYTE
                     except Exception as e:
                         log.error("Failed to delete child key: %s" % str(e))
                         error_saved = False

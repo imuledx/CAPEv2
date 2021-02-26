@@ -6,12 +6,14 @@ from __future__ import absolute_import
 import os
 import ctypes
 import logging
+from datetime import datetime
 
 from lib.common.constants import PATHS
 from lib.common.results import NetlogHandler
 from lib.common.defines import KERNEL32, SYSTEMTIME
 
 log = logging.getLogger()
+
 
 def create_folders():
     """Create folders in PATHS."""
@@ -23,6 +25,7 @@ def create_folders():
             os.makedirs(folder)
         except OSError:
             pass
+
 
 def init_logging():
     """Initialize logger."""
@@ -39,11 +42,17 @@ def init_logging():
 
     log.setLevel(logging.DEBUG)
 
+
 def disconnect_logger():
     """Cleanly close the logger. Note that LogHandler also implements close."""
     netlog_handler.close()
 
-def set_clock(clock):
+
+def set_clock(clock, timeout):
+    # Output key info to analysis log
+    log.info("Date set to: {0}, timeout set to: {1}".format(clock, timeout))
+
+    clock = datetime.strptime(clock, "%Y%m%dT%H:%M:%S")
     st = SYSTEMTIME()
     st.wYear = clock.year
     st.wMonth = clock.month
@@ -53,4 +62,3 @@ def set_clock(clock):
     st.wSecond = clock.second
     st.wMilliseconds = 0
     KERNEL32.SetLocalTime(ctypes.byref(st))
-
